@@ -35,8 +35,13 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  const isPublicAdminRoute = 
+    request.nextUrl.pathname.startsWith('/admin/login') ||
+    request.nextUrl.pathname.startsWith('/admin/recuperar-password') ||
+    request.nextUrl.pathname.startsWith('/admin/actualizar-password')
+
   // Protected routes check
-  if (request.nextUrl.pathname.startsWith('/admin') && !request.nextUrl.pathname.startsWith('/admin/login')) {
+  if (request.nextUrl.pathname.startsWith('/admin') && !isPublicAdminRoute) {
     if (!user) {
       const url = request.nextUrl.clone()
       url.pathname = '/admin/login'
@@ -45,7 +50,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Redirect authenticated users away from login page
-  if (request.nextUrl.pathname.startsWith('/admin/login') && user) {
+  if (request.nextUrl.pathname === '/admin/login' && user) {
     const url = request.nextUrl.clone()
     url.pathname = '/admin'
     return NextResponse.redirect(url)
