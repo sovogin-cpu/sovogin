@@ -280,7 +280,7 @@ export async function POST(request: NextRequest) {
         description: `${event.title} - Sovogin`,
         orderId: reference,
         redirectUrl:
-          `${siteUrl}/pago/resultado?reference=` +
+          `${siteUrl}/pago/resultado/` +
           encodeURIComponent(reference),
         customer: {
           name: customerName,
