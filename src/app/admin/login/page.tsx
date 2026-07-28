@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,9 +121,14 @@ export default function AdminLoginPage() {
           </CardContent>
         </Card>
         
-        <p className="text-center mt-8 text-slate-400 text-sm font-medium">
-          ¿Olvidaste tu contraseña? Contacta al soporte técnico.
-        </p>
+        <div className="text-center mt-6">
+          <Link 
+            href="/admin/recuperar-password" 
+            className="text-sm font-medium text-slate-500 hover:text-primary transition-colors underline underline-offset-4"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
+        </div>
       </motion.div>
     </div>
   );
