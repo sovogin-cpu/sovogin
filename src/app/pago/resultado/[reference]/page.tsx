@@ -1,12 +1,22 @@
 import React from "react";
 import Link from "next/link";
-import { CheckCircle2, XCircle, Clock, ArrowLeft, Calendar, RefreshCcw } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, ArrowLeft, Calendar, RefreshCcw, Mail, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { StatusPoller } from "@/components/payments/StatusPoller";
 
 interface PageProps {
   params: Promise<{ reference: string }>;
+}
+
+function maskEmail(email?: string) {
+  if (!email) return "";
+  const parts = email.split("@");
+  if (parts.length !== 2) return email;
+  const [name, domain] = parts;
+  const visible = name.length > 2 ? name.slice(0, 2) : name.slice(0, 1);
+  const maskedName = visible + "*".repeat(Math.max(1, name.length - visible.length));
+  return `${maskedName}@${domain}`;
 }
 
 export default async function DynamicPaymentResultPage({ params }: PageProps) {
@@ -23,11 +33,14 @@ export default async function DynamicPaymentResultPage({ params }: PageProps) {
         reference,
         product_id,
         product_name,
+        customer_email,
         amount,
         currency,
         status,
         openpay_status,
         authorization_code,
+        registration_id,
+        confirmation_email_sent_at,
         paid_at,
         created_at
       `)
@@ -114,7 +127,7 @@ export default async function DynamicPaymentResultPage({ params }: PageProps) {
               <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-600">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full uppercase tracking-wider">
                   Pago Aprobado
                 </span>
@@ -122,6 +135,27 @@ export default async function DynamicPaymentResultPage({ params }: PageProps) {
                 <p className="text-slate-500 text-sm">
                   Tu pago ha sido verificado y registrado exitosamente en el sistema de SOVOGIN.
                 </p>
+
+                {/* Additional registration & email confirmation notices */}
+                <div className="pt-2 flex flex-col items-center gap-2 text-xs font-medium text-slate-600">
+                  {order.registration_id && (
+                    <div className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 font-semibold">
+                      <BadgeCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Tu inscripción fue registrada correctamente</span>
+                    </div>
+                  )}
+
+                  {order.customer_email && (
+                    <div className="inline-flex items-center gap-1.5 text-slate-500">
+                      <Mail className="w-3.5 h-3.5 text-slate-400" />
+                      <span>
+                        {order.confirmation_email_sent_at
+                          ? `Enviamos la confirmación a ${maskEmail(order.customer_email)}`
+                          : `Enviando correo de confirmación a ${maskEmail(order.customer_email)}...`}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
