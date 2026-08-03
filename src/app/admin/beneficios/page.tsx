@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, Trash2, Edit2, CheckCircle2, Loader2, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,28 +13,39 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+interface Benefit {
+  id: string;
+  title: string;
+  description: string | null;
+  icon: string | null;
+  order_index: number;
+  created_at?: string;
+}
+
+interface BenefitFormData {
+  title: string;
+  description: string;
+  icon: string;
+  order_index: number;
+}
+
 export default function AssociationBenefitsAdmin() {
-  const [benefits, setBenefits] = useState<any[]>([]);
+  const [benefits, setBenefits] = useState<Benefit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<BenefitFormData>({
     title: "",
     description: "",
     icon: "CheckCircle2",
     order_index: 0
   });
 
-  useEffect(() => {
-    fetchBenefits();
-  }, []);
-
-  async function fetchBenefits() {
+  const fetchBenefits = useCallback(async () => {
     try {
-      console.log("Fetching benefits from Supabase...");
       const { data, error } = await supabase
         .from('association_benefits')
         .select('*')
@@ -45,15 +56,45 @@ export default function AssociationBenefitsAdmin() {
         throw error;
       }
       
-      console.log("Benefits received:", data);
-      setBenefits(data || []);
-    } catch (error: any) {
+      setBenefits((data as Benefit[]) || []);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
       console.error("Detailed error fetching benefits:", error);
-      alert("Error al cargar beneficios: " + (error.message || "Error desconocido"));
+      alert("Error al cargar beneficios: " + message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialBenefits() {
+      try {
+        const { data, error } = await supabase
+          .from('association_benefits')
+          .select('*')
+          .order('order_index', { ascending: true });
+        
+        if (error) throw error;
+        if (isMounted) {
+          setBenefits((data as Benefit[]) || []);
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching benefits:", error instanceof Error ? error.message : error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialBenefits();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   function openCreateModal() {
     setEditingId(null);
@@ -61,7 +102,7 @@ export default function AssociationBenefitsAdmin() {
     setIsModalOpen(true);
   }
 
-  function openEditModal(benefit: any) {
+  function openEditModal(benefit: Benefit) {
     setEditingId(benefit.id);
     setFormData({
       title: benefit.title,
@@ -90,9 +131,10 @@ export default function AssociationBenefitsAdmin() {
         if (error) throw error;
       }
       setIsModalOpen(false);
-      fetchBenefits();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchBenefits();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar la solicitud";
+      alert("Error: " + message);
     } finally {
       setIsSubmitting(false);
     }
@@ -103,9 +145,10 @@ export default function AssociationBenefitsAdmin() {
     try {
       const { error } = await supabase.from('association_benefits').delete().eq('id', id);
       if (error) throw error;
-      fetchBenefits();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchBenefits();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar el beneficio";
+      alert("Error: " + message);
     }
   }
 
@@ -200,7 +243,7 @@ export default function AssociationBenefitsAdmin() {
           ))}
           {benefits.length === 0 && (
             <div className="col-span-full py-20 text-center bg-slate-50 rounded-[2.5rem] border-2 border-dashed border-slate-200">
-              <p className="text-slate-400 font-medium">No hay beneficios registrados. Haz clic en "Nuevo Beneficio" para empezar.</p>
+              <p className="text-slate-400 font-medium">No hay beneficios registrados. Haz clic en &quot;Nuevo Beneficio&quot; para empezar.</p>
             </div>
           )}
         </div>

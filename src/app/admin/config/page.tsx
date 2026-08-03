@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Settings, Shield, Bell, Palette, Globe, Save, Loader2, CheckCircle2 } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Shield, Bell, Palette, Globe, Save, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,13 +9,41 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { createClient } from "@/utils/supabase/client";
 
+interface SiteSettingsSocial {
+  facebook: string;
+  instagram: string;
+  twitter: string;
+}
+
+interface SiteSettingsNotifications {
+  newMembers: boolean;
+  payments: boolean;
+  alerts: boolean;
+}
+
+interface SiteSettingsData {
+  name: string;
+  email: string;
+  phone: string;
+  whatsapp: string;
+  address: string;
+  mapsUrl: string;
+  description: string;
+  social: SiteSettingsSocial;
+  darkMode: boolean;
+  brandColor: string;
+  auth2FA: boolean;
+  activityLogs: boolean;
+  notifications: SiteSettingsNotifications;
+}
+
 export default function SettingsAdmin() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<SiteSettingsData>({
     name: "SOVOGIN",
     email: "contacto@sovogin.com",
     phone: "+57 (601) 123 4567",
@@ -39,33 +67,48 @@ export default function SettingsAdmin() {
     }
   });
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('site_settings')
         .select('data')
         .eq('id', 'general')
         .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error("Error fetching settings:", error);
+      }
       
-      if (data) {
-        // Merge with existing state to ensure new fields (whatsapp, mapsUrl, etc.) are defined
+      if (data && data.data) {
+        const fetchedData = data.data as Partial<SiteSettingsData>;
         setSettings(prev => ({
           ...prev,
-          ...data.data,
-          notifications: { ...prev.notifications, ...(data.data.notifications || {}) },
-          social: { ...prev.social, ...(data.data.social || {}) }
+          ...fetchedData,
+          notifications: { ...prev.notifications, ...(fetchedData.notifications || {}) },
+          social: { ...prev.social, ...(fetchedData.social || {}) }
         }));
       }
-    } catch (error) {
-      console.error("Error fetching settings:", error);
+    } catch (error: unknown) {
+      console.error("Error fetching settings:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialSettings() {
+      await fetchSettings();
+      if (!isMounted) return;
+    }
+
+    void loadInitialSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchSettings]);
 
   async function handleSave() {
     setSaving(true);
@@ -78,8 +121,10 @@ export default function SettingsAdmin() {
       
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
-    } catch (error: any) {
-      alert("Error guardando cambios: " + error.message);
+      void fetchSettings();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      alert("Error guardando cambios: " + message);
     } finally {
       setSaving(false);
     }
@@ -169,7 +214,7 @@ export default function SettingsAdmin() {
                     placeholder="https://www.google.com/maps/embed?..."
                     className="h-12 rounded-xl" 
                   />
-                  <p className="text-[10px] text-slate-400">Instrucciones: En Google Maps, ve a Compartir &gt; Insertar un mapa &gt; Copia solo el contenido de 'src="..."'.</p>
+                  <p className="text-[10px] text-slate-400">Instrucciones: En Google Maps, ve a Compartir &gt; Insertar un mapa &gt; Copia solo el contenido de &apos;src=&quot;...&quot;&apos;.</p>
                 </div>
               </div>
               <div className="space-y-2">
