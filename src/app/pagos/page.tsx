@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { CreditCard, CheckCircle2, AlertCircle, Loader2, ArrowRight, Wallet } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, ArrowRight, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NEW_MEMBERSHIP_FEE_COP, formatCopAmount } from "@/config/membership";
 
 export default function PaymentsPage() {
   const [amount, setAmount] = useState("");
@@ -14,7 +15,7 @@ export default function PaymentsPage() {
   const [paymentType, setPaymentType] = useState("membership");
 
   const handlePayment = async () => {
-    const finalAmount = paymentType === "new" ? 150000 : parseFloat(amount);
+    const finalAmount = paymentType === "new" ? NEW_MEMBERSHIP_FEE_COP : parseFloat(amount);
     
     if (!finalAmount || finalAmount < 1000) {
       alert("Por favor ingresa un valor válido (mínimo $1.000)");
@@ -100,7 +101,7 @@ export default function PaymentsPage() {
                   <TabsContent value="new" className="space-y-6">
                     <div className="p-8 rounded-3xl bg-slate-50 border border-slate-100 text-center">
                       <p className="text-slate-500 font-medium mb-2">Costo de inscripción para nuevos asociados</p>
-                      <div className="text-5xl font-bold text-slate-900 font-heading">$150.000</div>
+                      <div className="text-5xl font-bold text-slate-900 font-heading">{formatCopAmount(NEW_MEMBERSHIP_FEE_COP)}</div>
                       <p className="text-primary font-bold mt-2 uppercase tracking-widest text-xs">Pago Único</p>
                     </div>
                   </TabsContent>

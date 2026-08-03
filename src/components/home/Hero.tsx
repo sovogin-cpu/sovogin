@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, Award, Users, BookOpen } from "lucide-react";
+import { ChevronRight, Award } from "lucide-react";
 
 export function Hero() {
   return (
@@ -38,7 +38,7 @@ export function Hero() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-6xl md:text-9xl font-bold text-white leading-[0.9] tracking-tighter"
           >
-            Liderando el futuro de la <span className="text-primary">Ginecología</span>
+            Liderando el futuro de la <span className="text-primary">Ginecología y Obstetricia</span>
           </motion.h1>
           
           <motion.p
