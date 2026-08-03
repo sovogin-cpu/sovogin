@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Users, Search, Plus, Filter, Loader2, Edit2, Trash2, FileText } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Search, Plus, Loader2, Edit2, Trash2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/utils/supabase/client";
@@ -24,16 +24,49 @@ import { Label } from "@/components/ui/label";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
 
+interface Associate {
+  id: string;
+  full_name: string;
+  email: string;
+  document_number?: string | null;
+  specialty?: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface AssociateFormData {
+  full_name: string;
+  email: string;
+  status: string;
+  specialty: string;
+  document_number: string;
+}
+
+interface ExcelRow {
+  Nombre?: string;
+  nombre?: string;
+  FullName?: string;
+  Email?: string;
+  email?: string;
+  Documento?: string;
+  documento?: string;
+  Cedula?: string;
+  cedula?: string;
+  Especialidad?: string;
+  especialidad?: string;
+  [key: string]: unknown;
+}
+
 export default function MembersAdmin() {
-  const [associates, setAssociates] = useState<any[]>([]);
+  const [associates, setAssociates] = useState<Associate[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<AssociateFormData>({
     full_name: "",
     email: "",
     status: "Activo",
@@ -41,24 +74,49 @@ export default function MembersAdmin() {
     document_number: ""
   });
 
-  useEffect(() => {
-    fetchAssociates();
-  }, []);
-
-  async function fetchAssociates() {
+  const fetchAssociates = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('associates')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setAssociates(data || []);
-    } catch (error) {
-      console.error("Error fetching associates:", error);
+      setAssociates((data as Associate[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching associates:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialAssociates() {
+      try {
+        const { data, error } = await supabase
+          .from('associates')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (isMounted) {
+          setAssociates((data as Associate[]) || []);
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching associates:", error instanceof Error ? error.message : error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialAssociates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
@@ -73,20 +131,20 @@ export default function MembersAdmin() {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
 
-        const attendees = jsonData.map((row: any) => {
+        const attendees = jsonData.map((row) => {
           const values = Object.values(row);
-          const name = row.Nombre || row.nombre || row.FullName || values[0];
-          const email = row.Email || row.email || values[1];
-          const doc = row.Documento || row.documento || row.Cedula || row.cedula || values[2];
-          const spec = row.Especialidad || row.especialidad || values[3];
+          const name = row.Nombre || row.nombre || row.FullName || (typeof values[0] === 'string' || typeof values[0] === 'number' ? values[0] : "");
+          const email = row.Email || row.email || (typeof values[1] === 'string' || typeof values[1] === 'number' ? values[1] : "");
+          const doc = row.Documento || row.documento || row.Cedula || row.cedula || (typeof values[2] === 'string' || typeof values[2] === 'number' ? values[2] : "");
+          const spec = row.Especialidad || row.especialidad || (typeof values[3] === 'string' || typeof values[3] === 'number' ? values[3] : "");
 
           return {
-            full_name: name?.toString().trim() || "Sin Nombre",
-            email: email?.toString().trim().toLowerCase() || "",
-            document_number: doc?.toString().trim() || "",
-            specialty: spec?.toString().trim() || "",
+            full_name: name ? String(name).trim() : "Sin Nombre",
+            email: email ? String(email).trim().toLowerCase() : "",
+            document_number: doc ? String(doc).trim() : "",
+            specialty: spec ? String(spec).trim() : "",
             status: 'Activo'
           };
         }).filter(a => a.email);
@@ -101,10 +159,11 @@ export default function MembersAdmin() {
           alert("Error de base de datos: " + error.message);
         } else {
           alert(`${uniqueAttendees.length} asociados cargados con éxito.`);
-          fetchAssociates();
+          void fetchAssociates();
         }
-      } catch (err: any) {
-        alert("Error al procesar el archivo: " + err.message);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Error desconocido";
+        alert("Error al procesar el archivo: " + message);
       } finally {
         setUploading(false);
         e.target.value = "";
@@ -119,7 +178,7 @@ export default function MembersAdmin() {
     setIsModalOpen(true);
   }
 
-  function openEditModal(associate: any) {
+  function openEditModal(associate: Associate) {
     setEditingId(associate.id);
     setFormData({
       full_name: associate.full_name,
@@ -165,9 +224,10 @@ export default function MembersAdmin() {
         if (error) throw error;
       }
       setIsModalOpen(false);
-      fetchAssociates();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchAssociates();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar la solicitud";
+      alert("Error: " + message);
     } finally {
       setIsSubmitting(false);
     }
@@ -178,9 +238,10 @@ export default function MembersAdmin() {
     try {
       const { error } = await supabase.from('associates').delete().eq('id', id);
       if (error) throw error;
-      fetchAssociates();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchAssociates();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar el asociado";
+      alert("Error: " + message);
     }
   }
 
@@ -221,7 +282,7 @@ export default function MembersAdmin() {
             <Button
               type="button"
               onClick={openCreateModal}
-              className="bg-primary hover:bg-primary/90 ..."
+              className="bg-primary hover:bg-primary/90 h-12 px-6 rounded-xl shadow-lg shadow-primary/20 gap-2 font-bold"
             >
               <Plus className="w-5 h-5" />
               Nuevo Asociado
@@ -338,7 +399,7 @@ export default function MembersAdmin() {
               ))}
               {associates.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12 text-slate-400 font-medium">
+                  <TableCell colSpan={6} className="text-center py-12 text-slate-400 font-medium">
                     No hay asociados registrados todavía.
                   </TableCell>
                 </TableRow>

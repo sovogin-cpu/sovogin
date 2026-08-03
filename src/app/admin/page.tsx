@@ -1,14 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Users, 
   Calendar, 
   CreditCard, 
-  TrendingUp, 
-  MessageSquare,
-  ArrowUpRight,
-  ArrowDownRight,
   Loader2,
   FileText
 } from "lucide-react";
@@ -23,14 +19,43 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/utils/supabase/client";
 
+interface StatItem {
+  name: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  trend: string;
+  trendUp: boolean;
+}
+
+interface RecentRegistration {
+  id: string;
+  full_name?: string | null;
+  email?: string | null;
+  amount?: number | null;
+  status?: string | null;
+  created_at: string;
+  events?: {
+    title: string;
+  } | null;
+}
+
+interface UpcomingEvent {
+  id: string;
+  title: string;
+  date: string;
+  location?: string | null;
+}
+
 export default function AdminOverview() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any[]>([]);
-  const [recentRegistrations, setRecentRegistrations] = useState<any[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
-  const supabase = createClient();
+  const [stats, setStats] = useState<StatItem[]>([]);
+  const [recentRegistrations, setRecentRegistrations] = useState<RecentRegistration[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchData() {
       try {
         // Fetch Counts
@@ -54,24 +79,32 @@ export default function AdminOverview() {
           .order('date', { ascending: true })
           .limit(2);
 
-        setStats([
-          { name: "Total Asociados", value: membersCount || 0, icon: Users, trend: "+", trendUp: true },
-          { name: "Inscripciones", value: registrationsCount || 0, icon: CreditCard, trend: "+", trendUp: true },
-          { name: "Eventos Activos", value: eventsCount || 0, icon: Calendar, trend: "0%", trendUp: true },
-          { name: "Biblioteca", value: resourcesCount || 0, icon: FileText, trend: "+", trendUp: true },
-        ]);
+        if (isMounted) {
+          setStats([
+            { name: "Total Asociados", value: membersCount || 0, icon: Users, trend: "+", trendUp: true },
+            { name: "Inscripciones", value: registrationsCount || 0, icon: CreditCard, trend: "+", trendUp: true },
+            { name: "Eventos Activos", value: eventsCount || 0, icon: Calendar, trend: "0%", trendUp: true },
+            { name: "Biblioteca", value: resourcesCount || 0, icon: FileText, trend: "+", trendUp: true },
+          ]);
 
-        setRecentRegistrations(recent || []);
-        setUpcomingEvents(upcoming || []);
-      } catch (err) {
-        console.error("Error fetching admin stats:", err);
+          setRecentRegistrations((recent as RecentRegistration[]) || []);
+          setUpcomingEvents((upcoming as UpcomingEvent[]) || []);
+        }
+      } catch (err: unknown) {
+        console.error("Error fetching admin stats:", err instanceof Error ? err.message : err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
-    fetchData();
-  }, []);
+    void fetchData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   if (loading) {
     return (
