@@ -26,7 +26,15 @@ const navItems = [
   { name: "Contacto", href: "/contacto" },
 ];
 
-export function Navbar({ settings }: { settings: any }) {
+export interface NavbarSettings {
+  name?: string;
+}
+
+export interface NavbarProps {
+  settings?: NavbarSettings | null;
+}
+
+export function Navbar({ settings }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);

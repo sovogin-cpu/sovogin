@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, X, Send, User, Bot, Loader2 } from "lucide-react";
+import { MessageCircle, X, Send, Bot, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,12 @@ import { cn } from "@/lib/utils";
 interface Message {
   role: "user" | "bot";
   content: string;
+}
+
+interface ChatApiResponse {
+  text?: string;
+  error?: string;
+  details?: string;
 }
 
 export function ChatbotWidget() {
@@ -44,18 +50,23 @@ export function ChatbotWidget() {
         body: JSON.stringify({ message: userMessage, sessionId: "temp-session" })
       });
       
-      const data = await res.json();
+      const data = (await res.json()) as ChatApiResponse;
       
-      if (data.text) {
+      if (typeof data.text === "string" && data.text.trim().length > 0) {
         setMessages((prev) => [...prev, { 
           role: "bot", 
-          content: data.text 
+          content: data.text as string 
         }]);
       } else {
-        const errorMsg = data.details || data.error || "No response from AI";
+        const errorMsg =
+          typeof data.details === "string"
+            ? data.details
+            : typeof data.error === "string"
+            ? data.error
+            : "No response from AI";
         throw new Error(errorMsg);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Chat error:", error);
       setMessages((prev) => [...prev, { 
         role: "bot", 

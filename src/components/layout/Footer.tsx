@@ -2,7 +2,19 @@ import React from "react";
 import Link from "next/link";
 import { Globe, Mail, Phone, MapPin } from "lucide-react";
 
-export function Footer({ settings }: { settings: any }) {
+export interface FooterSettings {
+  name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  description?: string;
+}
+
+export interface FooterProps {
+  settings?: FooterSettings | null;
+}
+
+export function Footer({ settings }: FooterProps) {
   const brandName = settings?.name || "SOVOGIN";
   const email = settings?.email || "info@sovogin.org";
   const phone = settings?.phone || "+57 (601) 123 4567";
