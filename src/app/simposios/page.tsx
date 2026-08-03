@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { Calendar, MapPin, Users, Filter, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,27 +8,52 @@ import { createClient } from "@/utils/supabase/client";
 import { MemberVerificationModal } from "@/components/MemberVerificationModal";
 import { EventHeaderCarousel } from "@/components/EventHeaderCarousel";
 
+interface SimposioEvent {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  location: string;
+  image_url?: string | null;
+  price?: number | null;
+  capacity?: string | number | null;
+  category?: string | null;
+  live_url?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+}
+
 export default function SimposiosPage() {
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<SimposioEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
   const [targetEvent, setTargetEvent] = useState<{id: string, url: string} | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
-    fetchEvents();
-  }, []);
+    let isMounted = true;
 
-  async function fetchEvents() {
-    const { data } = await supabase
-      .from('events')
-      .select('*')
-      .order('date', { ascending: true });
-    if (data) setEvents(data);
-    setLoading(false);
-  }
+    async function fetchEvents() {
+      const { data } = await supabase
+        .from('events')
+        .select('*')
+        .order('date', { ascending: true });
 
-  const handleLiveAccess = (e: React.MouseEvent, eventId: string, url: string) => {
+      if (isMounted) {
+        if (data) setEvents(data as SimposioEvent[]);
+        setLoading(false);
+      }
+    }
+
+    void fetchEvents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
+
+  const handleLiveAccess = (e: React.MouseEvent, eventId: string, url?: string | null) => {
+    if (!url) return;
     e.preventDefault();
     // Check if already verified in this session
     const isVerified = sessionStorage.getItem("member_access") === "granted";

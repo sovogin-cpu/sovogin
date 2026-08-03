@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   Edit2,
@@ -125,7 +125,7 @@ function getPositionLabel(position: BannerPosition) {
 }
 
 export default function BannersAdminPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,12 +137,10 @@ export default function BannersAdminPage() {
   const [formData, setFormData] =
     useState<BannerFormData>(initialFormData);
 
-  useEffect(() => {
-    void fetchBanners();
-  }, []);
-
-  async function fetchBanners() {
-    setLoading(true);
+  const fetchBanners = useCallback(async (showLoading = false) => {
+    if (showLoading) {
+      setLoading(true);
+    }
 
     try {
       const { data, error } = await supabase
@@ -162,7 +160,42 @@ export default function BannersAdminPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialBanners() {
+      try {
+        const { data, error } = await supabase
+          .from("banners")
+          .select("*")
+          .order("position", { ascending: true })
+          .order("display_order", { ascending: true })
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted) {
+          setBanners((data as Banner[]) ?? []);
+        }
+      } catch (error) {
+        console.error("Error consultando banners:", error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialBanners();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   function openCreateModal() {
     setEditingId(null);
