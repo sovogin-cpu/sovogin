@@ -24,6 +24,7 @@ const menuItems = [
   { name: "Transmisiones", href: "/admin/eventos/live", icon: ImageIcon },
   { name: "Miembros", href: "/admin/miembros", icon: Users },
   { name: "Recursos", href: "/admin/recursos", icon: FileText },
+  { name: "Banners", href: "/admin/banners", icon: ImageIcon },
   { name: "Chatbot", href: "/admin/chatbot", icon: MessageSquare },
   { name: "Junta Directiva", href: "/admin/junta", icon: Users2 },
   { name: "Beneficios", href: "/admin/beneficios", icon: CheckCircle2 },
