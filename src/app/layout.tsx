@@ -1,8 +1,6 @@
 import { Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/layout/Navbar";
-import { Footer } from "@/components/layout/Footer";
-import { ChatbotWidget } from "@/components/chat/ChatbotWidget";
+import { AppChrome } from "@/components/layout/AppChrome";
 import { createClient } from "@/utils/supabase/server";
 
 const cormorant = Cormorant_Garamond({
@@ -43,12 +41,7 @@ export default async function RootLayout({
       className={`${cormorant.variable} ${inter.variable} h-full antialiased scroll-smooth`}
     >
       <body className="min-h-full flex flex-col bg-background font-sans font-heading-wrapper">
-        <Navbar settings={settings} />
-        <main className="flex-grow pt-16">
-          {children}
-        </main>
-        <Footer settings={settings} />
-        <ChatbotWidget />
+        <AppChrome settings={settings}>{children}</AppChrome>
       </body>
     </html>
   );
