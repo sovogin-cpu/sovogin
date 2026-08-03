@@ -6,6 +6,7 @@ import { Calendar, MapPin, Users, Filter, Image as ImageIcon } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
 import { MemberVerificationModal } from "@/components/MemberVerificationModal";
+import { EventHeaderCarousel } from "@/components/EventHeaderCarousel";
 
 export default function SimposiosPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -55,15 +56,20 @@ export default function SimposiosPage() {
         eventId={targetEvent?.id}
       />
 
-      <div className="bg-white border-b border-slate-100 py-16">
+      <div className="border-b border-slate-100 bg-white py-12 md:py-16">
         <div className="container mx-auto px-4">
-          <div className="max-w-4xl space-y-4">
-            <h1 className="text-4xl md:text-6xl font-bold text-slate-900 tracking-tight">
-              Eventos
-            </h1>
-            <p className="text-xl text-slate-600 max-w-2xl">
-              Manténgase a la vanguardia de la especialidad con nuestra programación académica de alto nivel.
-            </p>
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[0.8fr_1.2fr] xl:gap-14">
+            <div className="space-y-5">
+              <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-6xl">
+                Eventos
+              </h1>
+
+              <p className="max-w-xl text-lg leading-relaxed text-slate-600 md:text-xl">
+                Manténgase a la vanguardia de la especialidad con nuestra programación académica de alto nivel.
+              </p>
+            </div>
+
+            <EventHeaderCarousel />
           </div>
         </div>
       </div>
