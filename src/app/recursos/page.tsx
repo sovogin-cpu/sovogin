@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { 
   FileText, 
@@ -22,10 +22,23 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
 
+interface PublicResource {
+  id: string;
+  title: string;
+  description?: string | null;
+  file_url: string;
+  resource_type: string;
+  format?: string | null;
+  category: string;
+  is_public?: boolean;
+  created_at: string;
+}
+
 export default function RecursosPage() {
-  const supabase = createClient();
-  const [resources, setResources] = useState<any[]>([]);
+  const supabase = useMemo(() => createClient(), []);
+  const [resources, setResources] = useState<PublicResource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasCheckedAccess, setHasCheckedAccess] = useState(false);
   const [accessGranted, setAccessGranted] = useState(false);
   
   // Filters
@@ -37,6 +50,16 @@ export default function RecursosPage() {
   const [credentials, setCredentials] = useState({ email: "", document: "" });
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const isGranted = sessionStorage.getItem("member_access") === "granted";
+    queueMicrotask(() => {
+      if (isGranted) {
+        setAccessGranted(true);
+      }
+      setHasCheckedAccess(true);
+    });
+  }, []);
 
   const categories = [
     "Todas",
@@ -50,21 +73,26 @@ export default function RecursosPage() {
   ];
 
   useEffect(() => {
-    const savedAccess = sessionStorage.getItem("member_access");
-    if (savedAccess === "granted") {
-      setAccessGranted(true);
-    }
-    fetchResources();
-  }, []);
+    let isMounted = true;
 
-  async function fetchResources() {
-    const { data } = await supabase
-      .from('resources')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (data) setResources(data);
-    setLoading(false);
-  }
+    async function fetchResources() {
+      const { data } = await supabase
+        .from('resources')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (isMounted) {
+        if (data) setResources(data as PublicResource[]);
+        setLoading(false);
+      }
+    }
+
+    void fetchResources();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -72,21 +100,29 @@ export default function RecursosPage() {
     setError("");
 
     try {
-      const { data: associate, error: err } = await supabase
-        .from('associates')
-        .select('*')
-        .eq('email', credentials.email.toLowerCase())
-        .eq('document_number', credentials.document.trim())
-        .eq('status', 'Activo')
-        .single();
+      const res = await fetch("/api/associates/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: credentials.email,
+          documentNumber: credentials.document,
+        }),
+      });
 
-      if (associate) {
+      if (!res.ok) {
+        throw new Error("Error en la respuesta del servidor");
+      }
+
+      const data = (await res.json()) as { valid?: boolean };
+
+      if (data.valid === true) {
         setAccessGranted(true);
         sessionStorage.setItem("member_access", "granted");
       } else {
         setError("Credenciales incorrectas o asociado inactivo.");
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error("Error en verificación de asociado:", err instanceof Error ? err.message : err);
       setError("Error al verificar credenciales. Verifique sus datos.");
     } finally {
       setIsVerifying(false);
@@ -99,6 +135,14 @@ export default function RecursosPage() {
     const matchesType = selectedType === "Todos" || res.resource_type === selectedType;
     return matchesSearch && matchesCategory && matchesType;
   });
+
+  if (!hasCheckedAccess) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 pt-20 pb-20">
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!accessGranted) {
     return (

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { FileText, Download, Eye, Plus, Search, FileUp, Loader2, Trash2, Edit2, Play, Globe } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { FileText, Eye, Plus, Search, FileUp, Loader2, Trash2, Edit2, Play, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
 import { 
@@ -22,6 +22,34 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+interface Resource {
+  id: string;
+  title: string;
+  category: string;
+  resource_type: string;
+  file_url: string;
+  description?: string | null;
+  created_at: string;
+}
+
+interface ResourceFormData {
+  title: string;
+  category: string;
+  resource_type: string;
+  file_url: string;
+  youtube_url: string;
+  external_link: string;
+  description: string;
+}
+
+interface ResourcePayload {
+  title: string;
+  category: string;
+  resource_type: string;
+  file_url: string;
+  description: string;
+}
+
 const resourceCategories = [
   "Documentación SOVOGIN", 
   "Simposios", 
@@ -39,15 +67,15 @@ const resourceTypes = [
 ];
 
 export default function ResourcesAdmin() {
-  const [resources, setResources] = useState<any[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ResourceFormData>({
     title: "",
     category: "Documentación SOVOGIN",
     resource_type: "document",
@@ -57,24 +85,49 @@ export default function ResourcesAdmin() {
     description: ""
   });
 
-  useEffect(() => {
-    fetchResources();
-  }, []);
-
-  async function fetchResources() {
+  const fetchResources = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('resources')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setResources(data || []);
-    } catch (error) {
-      console.error("Error fetching resources:", error);
+      setResources((data as Resource[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching resources:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialResources() {
+      try {
+        const { data, error } = await supabase
+          .from('resources')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (isMounted) {
+          setResources((data as Resource[]) || []);
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching resources:", error instanceof Error ? error.message : error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialResources();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   async function uploadFile(file: File) {
     const fileExt = file.name.split('.').pop();
@@ -112,7 +165,7 @@ export default function ResourcesAdmin() {
 
       if (!finalFileUrl && !editingId) throw new Error("Debes proporcionar un archivo o enlace");
 
-      const payload = { 
+      const payload: ResourcePayload = { 
         title: formData.title,
         category: formData.category,
         resource_type: formData.resource_type,
@@ -129,15 +182,16 @@ export default function ResourcesAdmin() {
       }
       setIsModalOpen(false);
       setSelectedFile(null);
-      fetchResources();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchResources();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar la solicitud";
+      alert("Error: " + message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  function openEditModal(res: any) {
+  function openEditModal(res: Resource) {
     setEditingId(res.id);
     setFormData({
       title: res.title,
@@ -156,9 +210,10 @@ export default function ResourcesAdmin() {
     try {
       const { error } = await supabase.from('resources').delete().eq('id', id);
       if (error) throw error;
-      fetchResources();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchResources();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar el recurso";
+      alert("Error: " + message);
     }
   }
 
