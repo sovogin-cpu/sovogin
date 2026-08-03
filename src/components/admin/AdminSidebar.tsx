@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, 
   Calendar, 
@@ -16,6 +16,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/utils/supabase/client";
 
 const menuItems = [
   { name: "Resumen", href: "/admin", icon: LayoutDashboard },
@@ -34,6 +35,29 @@ const menuItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        alert("Error al cerrar sesión. Por favor intente de nuevo.");
+        setIsSigningOut(false);
+        return;
+      }
+      router.replace("/admin/login");
+      router.refresh();
+    } catch (err: unknown) {
+      console.error("Error al cerrar sesión:", err);
+      alert("Error al cerrar sesión. Por favor intente de nuevo.");
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <aside className="w-64 bg-slate-950 text-white flex flex-col h-screen fixed left-0 top-0 z-[100] shadow-2xl">
@@ -81,9 +105,13 @@ export function AdminSidebar() {
             <span className="text-[10px] text-slate-500 truncate">admin@sovogin.com</span>
           </div>
         </div>
-        <button className="flex items-center gap-4 px-4 py-4 w-full text-left rounded-2xl text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-all text-sm font-bold">
+        <button 
+          onClick={handleSignOut}
+          disabled={isSigningOut}
+          className="flex items-center gap-4 px-4 py-4 w-full text-left rounded-2xl text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-all text-sm font-bold disabled:opacity-50"
+        >
           <LogOut className="w-5 h-5" />
-          Cerrar Sesión
+          {isSigningOut ? "Cerrando sesión..." : "Cerrar Sesión"}
         </button>
       </div>
     </aside>

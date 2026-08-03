@@ -134,7 +134,7 @@ export function Navbar({ settings }: NavbarProps) {
               Cerrar Sesión
             </Button>
           ) : (
-            <Link href="/recursos">
+            <Link href="/admin/login">
               <Button variant="ghost" size="sm" className="gap-2 text-slate-600 font-bold">
                 <LogIn className="w-4 h-4" />
                 Ingresar
@@ -198,7 +198,7 @@ export function Navbar({ settings }: NavbarProps) {
                     Cerrar Sesión
                   </Button>
                 ) : (
-                  <Link href="/recursos" onClick={() => setIsOpen(false)}>
+                  <Link href="/admin/login" onClick={() => setIsOpen(false)}>
                     <Button variant="outline" className="w-full h-12 text-slate-600 font-bold">Ingresar</Button>
                   </Link>
                 )}
