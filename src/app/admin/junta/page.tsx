@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Users2, Plus, Edit2, Trash2, Loader2, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,39 +15,85 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface BoardMember {
+  id: string;
+  name: string;
+  role: string;
+  image_url: string | null;
+  order_index?: number;
+  created_at?: string;
+}
+
+interface BoardMemberFormData {
+  name: string;
+  role: string;
+  image_url: string;
+}
+
+interface BoardMemberPayload {
+  name: string;
+  role: string;
+  image_url: string;
+}
+
 export default function BoardAdmin() {
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<BoardMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<BoardMemberFormData>({
     name: "",
     role: "",
     image_url: ""
   });
 
-  useEffect(() => {
-    fetchMembers();
-  }, []);
-
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('board_members')
         .select('*')
         .order('order_index', { ascending: true });
       if (error) throw error;
-      setMembers(data || []);
-    } catch (error) {
-      console.error("Error fetching board members:", error);
+      setMembers((data as BoardMember[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching board members:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialMembers() {
+      try {
+        const { data, error } = await supabase
+          .from('board_members')
+          .select('*')
+          .order('order_index', { ascending: true });
+        if (error) throw error;
+        if (isMounted) {
+          setMembers((data as BoardMember[]) || []);
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching board members:", error instanceof Error ? error.message : error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialMembers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   async function uploadImage(file: File) {
     const fileExt = file.name.split('.').pop();
@@ -78,7 +124,7 @@ export default function BoardAdmin() {
         finalImageUrl = await uploadImage(selectedFile);
       }
 
-      const payload = {
+      const payload: BoardMemberPayload = {
         name: formData.name,
         role: formData.role,
         image_url: finalImageUrl
@@ -93,9 +139,10 @@ export default function BoardAdmin() {
       }
       setIsModalOpen(false);
       setSelectedFile(null);
-      fetchMembers();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchMembers();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar la solicitud";
+      alert("Error: " + message);
     } finally {
       setIsSubmitting(false);
     }
@@ -108,7 +155,7 @@ export default function BoardAdmin() {
     setIsModalOpen(true);
   }
 
-  function openEditModal(member: any) {
+  function openEditModal(member: BoardMember) {
     setEditingId(member.id);
     setSelectedFile(null);
     setFormData({
@@ -124,9 +171,10 @@ export default function BoardAdmin() {
     try {
       const { error } = await supabase.from('board_members').delete().eq('id', id);
       if (error) throw error;
-      fetchMembers();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchMembers();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar el integrante";
+      alert("Error: " + message);
     }
   }
 
@@ -159,9 +207,9 @@ export default function BoardAdmin() {
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-2xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden">
                     {selectedFile ? (
-                      <img src={URL.createObjectURL(selectedFile)} className="w-full h-full object-cover" />
+                      <img src={URL.createObjectURL(selectedFile)} alt="Previsualización de la foto seleccionada" className="w-full h-full object-cover" />
                     ) : formData.image_url ? (
-                      <img src={formData.image_url} className="w-full h-full object-cover" />
+                      <img src={formData.image_url} alt="Previsualización de la foto actual" className="w-full h-full object-cover" />
                     ) : (
                       <ImageIcon className="w-8 h-8 text-slate-300" />
                     )}
@@ -210,7 +258,7 @@ export default function BoardAdmin() {
               <Card className="border-none shadow-sm rounded-2xl hover:shadow-md transition-all overflow-hidden bg-white/80 backdrop-blur-md">
                 <CardContent className="p-4 flex items-center gap-6">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border-2 border-white shadow-sm shrink-0">
-                    <img src={member.image_url || "/img/logo.png"} alt={member.name} className="w-full h-full object-cover" />
+                    <img src={member.image_url || "/img/logo.png"} alt={member.name ? `Fotografía de ${member.name}` : "Fotografía del integrante"} className="w-full h-full object-cover" />
                   </div>
                   <div className="flex-1">
                     <h3 className="font-bold text-slate-900">{member.name}</h3>

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Image as ImageIcon, Plus, Trash2, Edit2, Loader2, ExternalLink } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Image as ImageIcon, Plus, Trash2, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/utils/supabase/client";
@@ -14,42 +14,90 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface Sponsor {
+  id: string;
+  name: string;
+  level: string;
+  logo_url: string | null;
+  website_url: string | null;
+  created_at?: string;
+}
+
+interface SponsorFormData {
+  name: string;
+  level: string;
+  logo_url: string;
+  website_url: string;
+}
+
+interface SponsorPayload {
+  name: string;
+  level: string;
+  logo_url: string;
+  website_url: string;
+}
+
 const levels = ["Diamante", "Oro", "Plata", "Bronce"];
 
 export default function SponsorsAdmin() {
-  const [sponsors, setSponsors] = useState<any[]>([]);
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<SponsorFormData>({
     name: "",
     level: "Bronce",
     logo_url: "",
     website_url: ""
   });
 
-  useEffect(() => {
-    fetchSponsors();
-  }, []);
-
-  async function fetchSponsors() {
+  const fetchSponsors = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('sponsors')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setSponsors(data || []);
-    } catch (error) {
-      console.error("Error fetching sponsors:", error);
+      setSponsors((data as Sponsor[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching sponsors:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialSponsors() {
+      try {
+        const { data, error } = await supabase
+          .from('sponsors')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (isMounted) {
+          setSponsors((data as Sponsor[]) || []);
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching sponsors:", error instanceof Error ? error.message : error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitialSponsors();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   async function uploadImage(file: File) {
     const fileExt = file.name.split('.').pop();
@@ -79,7 +127,7 @@ export default function SponsorsAdmin() {
         finalLogoUrl = await uploadImage(selectedFile);
       }
 
-      const payload = { ...formData, logo_url: finalLogoUrl };
+      const payload: SponsorPayload = { ...formData, logo_url: finalLogoUrl };
 
       if (editingId) {
         const { error } = await supabase.from('sponsors').update(payload).eq('id', editingId);
@@ -90,12 +138,13 @@ export default function SponsorsAdmin() {
       }
       setIsModalOpen(false);
       setSelectedFile(null);
-      fetchSponsors();
-    } catch (error: any) {
-      if (error.message.includes("Bucket not found")) {
+      void fetchSponsors();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar la solicitud";
+      if (message.includes("Bucket not found")) {
         alert("Error: El bucket de almacenamiento 'sponsors' no existe. Por favor, créalo en el panel de Supabase como un bucket PÚBLICO.");
       } else {
-        alert("Error: " + error.message);
+        alert("Error: " + message);
       }
     } finally {
       setIsSubmitting(false);
@@ -109,7 +158,7 @@ export default function SponsorsAdmin() {
     setIsModalOpen(true);
   }
 
-  function openEditModal(sponsor: any) {
+  function openEditModal(sponsor: Sponsor) {
     setEditingId(sponsor.id);
     setSelectedFile(null);
     setFormData({
@@ -126,9 +175,10 @@ export default function SponsorsAdmin() {
     try {
       const { error } = await supabase.from('sponsors').delete().eq('id', id);
       if (error) throw error;
-      fetchSponsors();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchSponsors();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar patrocinador";
+      alert("Error: " + message);
     }
   }
 
@@ -157,9 +207,9 @@ export default function SponsorsAdmin() {
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-2xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden">
                     {selectedFile ? (
-                      <img src={URL.createObjectURL(selectedFile)} className="w-full h-full object-contain p-2" />
+                      <img src={URL.createObjectURL(selectedFile)} alt="Previsualización del logo seleccionado" className="w-full h-full object-contain p-2" />
                     ) : formData.logo_url ? (
-                      <img src={formData.logo_url} className="w-full h-full object-contain p-2" />
+                      <img src={formData.logo_url} alt="Previsualización del logo actual" className="w-full h-full object-contain p-2" />
                     ) : (
                       <ImageIcon className="w-8 h-8 text-slate-300" />
                     )}
@@ -213,7 +263,7 @@ export default function SponsorsAdmin() {
           {sponsors.map((sponsor) => (
             <Card key={sponsor.id} className="border-none shadow-sm rounded-[2.5rem] overflow-hidden group hover:shadow-xl transition-all duration-300 bg-white/80 backdrop-blur-md">
               <div className="aspect-[2/1] bg-slate-50 flex items-center justify-center relative overflow-hidden p-8">
-                <img src={sponsor.logo_url || "/img/logo.png"} alt={sponsor.name} className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-500" />
+                <img src={sponsor.logo_url || "/img/logo.png"} alt={sponsor.name ? `Logo de ${sponsor.name}` : "Logo del patrocinador"} className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-500" />
                 <div className="absolute top-4 left-4">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm ${
                     sponsor.level === 'Diamante' ? 'bg-indigo-500 text-white' : 
