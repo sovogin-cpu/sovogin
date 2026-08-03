@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { 
   Lock, 
@@ -18,75 +18,140 @@ import { Input } from "@/components/ui/input";
 import { OpenpayRegistrationForm } from "@/components/payments/OpenpayRegistrationForm";
 import { cn } from "@/lib/utils";
 
+interface EventLive {
+  id: string;
+  title: string;
+  youtube_video_id: string;
+  youtube_chat_id?: string | null;
+  banner_url?: string | null;
+  is_active?: boolean;
+  price?: number | null;
+  event_id?: string;
+  date?: string | null;
+  location?: string | null;
+}
+
+interface EventData {
+  id: string;
+  title: string;
+  price?: number | null;
+  date?: string | null;
+  location?: string | null;
+}
+
+interface CombinedEvent extends EventLive {
+  price?: number | null;
+  event_id?: string;
+  date?: string | null;
+  location?: string | null;
+}
+
+interface LoginCredentials {
+  email: string;
+  document: string;
+}
+
 export default function LiveEventPage() {
   const { id } = useParams();
   const eventIdStr = Array.isArray(id) ? id[0] : id;
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   
   const [loading, setLoading] = useState(true);
-  const [event, setEvent] = useState<any>(null);
+  const [event, setEvent] = useState<CombinedEvent | null>(null);
   const [accessGranted, setAccessGranted] = useState(false);
+  const [accessResolved, setAccessResolved] = useState(false);
   const [error, setError] = useState("");
   
   // Login Form
-  const [credentials, setCredentials] = useState({
+  const [credentials, setCredentials] = useState<LoginCredentials>({
     email: "",
     document: ""
   });
   const [isVerifying, setIsVerifying] = useState(false);
 
+  const fetchEvent = useCallback(async () => {
+    if (!eventIdStr) return;
+    let combinedEvent: CombinedEvent | null = null;
+
+    try {
+      // 1. Check in event_lives
+      const { data: liveData } = await supabase
+        .from('event_lives')
+        .select('*')
+        .eq('id', eventIdStr)
+        .single();
+
+      if (liveData) {
+        const live = liveData as EventLive;
+        combinedEvent = live;
+        // Check if corresponding entry exists in events table for pricing info
+        const { data: eventData } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', eventIdStr)
+          .single();
+
+        if (eventData) {
+          const ev = eventData as EventData;
+          combinedEvent = {
+            ...live,
+            price: ev.price ?? live.price ?? 0,
+            event_id: ev.id,
+            date: ev.date ?? live.date,
+            location: ev.location ?? live.location
+          };
+        }
+      } else {
+        // 2. Fallback check directly in events table
+        const { data: eventData } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', eventIdStr)
+          .single();
+        
+        if (eventData) {
+          combinedEvent = eventData as CombinedEvent;
+        }
+      }
+
+      if (combinedEvent) {
+        setEvent(combinedEvent);
+      }
+    } catch (error: unknown) {
+      console.error("Error fetching event:", error instanceof Error ? error.message : error);
+    } finally {
+      setLoading(false);
+    }
+  }, [eventIdStr, supabase]);
+
   useEffect(() => {
-    fetchEvent();
-    // Check if access was already granted in this session
-    const savedAccess = sessionStorage.getItem(`live_access_${eventIdStr}`);
-    if (savedAccess === "granted") {
-      setAccessGranted(true);
-    }
-  }, [eventIdStr]);
+    let isMounted = true;
 
-  async function fetchEvent() {
-    let combinedEvent: any = null;
-
-    // 1. Check in event_lives
-    const { data: liveData } = await supabase
-      .from('event_lives')
-      .select('*')
-      .eq('id', eventIdStr)
-      .single();
-
-    if (liveData) {
-      combinedEvent = liveData;
-      // Check if corresponding entry exists in events table for pricing info
-      const { data: eventData } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', eventIdStr)
-        .single();
-
-      if (eventData) {
-        combinedEvent = {
-          ...liveData,
-          price: eventData.price ?? liveData.price ?? 0,
-          event_id: eventData.id,
-        };
+    async function initializePage() {
+      await fetchEvent();
+      if (typeof window !== "undefined" && eventIdStr) {
+        const savedAccess = sessionStorage.getItem(`live_access_${eventIdStr}`);
+        if (savedAccess === "granted" && isMounted) {
+          setAccessGranted(true);
+        }
       }
-    } else {
-      // 2. Fallback check directly in events table
-      const { data: eventData } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', eventIdStr)
-        .single();
-      
-      if (eventData) {
-        combinedEvent = eventData;
+      if (isMounted) {
+        setAccessResolved(true);
       }
     }
 
-    if (combinedEvent) {
-      setEvent(combinedEvent);
+    void initializePage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [eventIdStr, fetchEvent]);
+
+  function grantAccess() {
+    setAccessGranted(true);
+    if (typeof window !== "undefined" && eventIdStr) {
+      sessionStorage.setItem(`live_access_${eventIdStr}`, "granted");
     }
-    setLoading(false);
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -123,19 +188,15 @@ export default function LiveEventPage() {
       }
 
       setError("Acceso denegado. Verifica tus datos o contacta al administrador.");
-    } catch (err) {
+    } catch (error: unknown) {
+      console.error("Error verifying access:", error instanceof Error ? error.message : error);
       setError("Ocurrió un error al verificar el acceso.");
     } finally {
       setIsVerifying(false);
     }
   }
 
-  function grantAccess() {
-    setAccessGranted(true);
-    sessionStorage.setItem(`live_access_${eventIdStr}`, "granted");
-  }
-
-  if (loading) {
+  if (loading || !accessResolved) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -246,7 +307,7 @@ export default function LiveEventPage() {
                 eventTitle={event.title}
                 eventPrice={Number(event.price)}
                 eventDate={event.date ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : undefined}
-                eventLocation={event.location}
+                eventLocation={event.location ?? undefined}
               />
             )}
           </div>
@@ -279,7 +340,12 @@ export default function LiveEventPage() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => { sessionStorage.removeItem(`live_access_${eventIdStr}`); setAccessGranted(false); }}
+            onClick={() => { 
+              if (typeof window !== "undefined" && eventIdStr) {
+                sessionStorage.removeItem(`live_access_${eventIdStr}`);
+              }
+              setAccessGranted(false); 
+            }}
             className="text-slate-400 hover:text-white"
           >
             Salir
