@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Calendar, Plus, MapPin, Users, Loader2, Edit2, Trash2, Image as ImageIcon, CheckCircle2 } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Plus, MapPin, Loader2, Edit2, Trash2, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/utils/supabase/client";
@@ -16,16 +16,74 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+interface PricingTier {
+  name: string;
+  presencial: number;
+  virtual: number;
+}
+
+interface Speaker {
+  name: string;
+  description: string;
+}
+
+interface ProgramItem {
+  time: string;
+  topic: string;
+  speakers: Speaker[];
+  speaker?: string;
+}
+
+interface TieredPricing {
+  tiers?: PricingTier[];
+  presencial?: {
+    general?: number;
+    [key: string]: number | undefined;
+  };
+  virtual?: {
+    general?: number;
+    [key: string]: number | undefined;
+  };
+}
+
+interface Event {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  location?: string | null;
+  image_url?: string | null;
+  live_url?: string | null;
+  moderators?: string | null;
+  program_items?: ProgramItem[] | null;
+  speakers_info?: string | null;
+  tiered_pricing?: TieredPricing | null;
+  created_at?: string;
+}
+
+interface EventFormData {
+  title: string;
+  description: string;
+  date: string;
+  location: string;
+  image_url: string;
+  live_url: string;
+  moderators: string;
+  program_items: ProgramItem[];
+  speakers_info: string;
+  pricing_tiers: PricingTier[];
+}
+
 export default function EventsAdmin() {
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [formData, setFormData] = useState<any>({
+  const [formData, setFormData] = useState<EventFormData>({
     title: "",
     description: "",
     date: "",
@@ -43,24 +101,35 @@ export default function EventsAdmin() {
     ]
   });
 
-  useEffect(() => {
-    fetchEvents();
-  }, []);
-
-  async function fetchEvents() {
+  const fetchEvents = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('events')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setEvents(data || []);
-    } catch (error) {
-      console.error("Error fetching events:", error);
+      setEvents((data as Event[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching events:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialEvents() {
+      await fetchEvents();
+      if (!isMounted) return;
+    }
+
+    void loadInitialEvents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchEvents]);
 
   function openCreateModal() {
     setEditingId(null);
@@ -85,23 +154,23 @@ export default function EventsAdmin() {
     setIsModalOpen(true);
   }
 
-  function openEditModal(event: any) {
-    setEditingId(event.id);
+  function openEditModal(eventItem: Event) {
+    setEditingId(eventItem.id);
     setSelectedFile(null);
     setFormData({
-      title: event.title,
-      description: event.description || "",
-      date: event.date,
-      location: event.location || "",
-      image_url: event.image_url || "/img/1.jpeg",
-      live_url: event.live_url || "",
-      moderators: event.moderators || "",
-      program_items: event.program_items?.map((item: any) => ({
+      title: eventItem.title,
+      description: eventItem.description || "",
+      date: eventItem.date,
+      location: eventItem.location || "",
+      image_url: eventItem.image_url || "/img/1.jpeg",
+      live_url: eventItem.live_url || "",
+      moderators: eventItem.moderators || "",
+      program_items: eventItem.program_items?.map((item) => ({
         ...item,
-        speakers: item.speakers?.map((s: any) => typeof s === 'string' ? { name: s, description: "" } : s) || [{ name: item.speaker || "", description: "" }]
+        speakers: item.speakers?.map((s) => typeof s === 'string' ? { name: s, description: "" } : s) || [{ name: item.speaker || "", description: "" }]
       })) || [],
-      speakers_info: event.speakers_info || "",
-      pricing_tiers: event.tiered_pricing?.tiers || [
+      speakers_info: eventItem.speakers_info || "",
+      pricing_tiers: eventItem.tiered_pricing?.tiers || [
         { name: "General", presencial: 0, virtual: 0 },
         { name: "Residente", presencial: 0, virtual: 0 },
         { name: "Estudiante", presencial: 0, virtual: 0 },
@@ -134,7 +203,7 @@ export default function EventsAdmin() {
     setFormData({ ...formData, program_items: newItems });
   };
 
-  const updateProgramItem = (index: number, field: string, value: any) => {
+  const updateProgramItem = (index: number, field: keyof ProgramItem, value: string | Speaker[]) => {
     const newItems = [...formData.program_items];
     newItems[index] = { ...newItems[index], [field]: value };
     setFormData({ ...formData, program_items: newItems });
@@ -152,7 +221,7 @@ export default function EventsAdmin() {
     setFormData({ ...formData, program_items: newItems });
   };
 
-  const updateSpeakerInItem = (itemIndex: number, speakerIndex: number, field: string, value: string) => {
+  const updateSpeakerInItem = (itemIndex: number, speakerIndex: number, field: keyof Speaker, value: string) => {
     const newItems = [...formData.program_items];
     newItems[itemIndex].speakers[speakerIndex] = { 
       ...newItems[itemIndex].speakers[speakerIndex], 
@@ -172,12 +241,17 @@ export default function EventsAdmin() {
       }
 
       const payload = {
-        ...formData,
+        title: formData.title,
+        description: formData.description,
+        date: formData.date,
+        location: formData.location,
         image_url: finalImageUrl,
+        live_url: formData.live_url,
+        moderators: formData.moderators,
+        program_items: formData.program_items,
+        speakers_info: formData.speakers_info,
         tiered_pricing: { tiers: formData.pricing_tiers }
       };
-      
-      delete payload.pricing_tiers;
 
       if (editingId) {
         const { error } = await supabase.from('events').update(payload).eq('id', editingId);
@@ -188,9 +262,10 @@ export default function EventsAdmin() {
       }
 
       setIsModalOpen(false);
-      fetchEvents();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchEvents();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al procesar el evento";
+      alert("Error: " + message);
     } finally {
       setIsSubmitting(false);
     }
@@ -209,7 +284,7 @@ export default function EventsAdmin() {
     setFormData({ ...formData, pricing_tiers: newTiers });
   };
 
-  const updateTier = (index: number, field: string, value: any) => {
+  const updateTier = (index: number, field: keyof PricingTier, value: string | number) => {
     const newTiers = [...formData.pricing_tiers];
     newTiers[index] = { ...newTiers[index], [field]: value };
     setFormData({ ...formData, pricing_tiers: newTiers });
@@ -220,9 +295,10 @@ export default function EventsAdmin() {
     try {
       const { error } = await supabase.from('events').delete().eq('id', id);
       if (error) throw error;
-      fetchEvents();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchEvents();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar el evento";
+      alert("Error: " + message);
     }
   }
 
@@ -260,9 +336,9 @@ export default function EventsAdmin() {
                       <div className="flex items-center gap-4">
                         <div className="w-20 h-20 rounded-2xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
                           {selectedFile ? (
-                            <img src={URL.createObjectURL(selectedFile)} className="w-full h-full object-cover" />
+                            <img src={URL.createObjectURL(selectedFile)} alt={`Previsualización de la imagen cargada para ${formData.title || "el evento"}`} className="w-full h-full object-cover" />
                           ) : (
-                            <img src={formData.image_url} className="w-full h-full object-cover" />
+                            <img src={formData.image_url} alt={`Vista previa de ${formData.title || "el evento"}`} className="w-full h-full object-cover" />
                           )}
                         </div>
                         <Input type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="h-10 text-xs" />
@@ -308,7 +384,7 @@ export default function EventsAdmin() {
                       </div>
                       
                       <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                        {formData.program_items.map((item: any, index: number) => (
+                        {formData.program_items.map((item, index: number) => (
                           <div key={index} className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3 relative group">
                             <Button 
                               type="button" 
@@ -340,7 +416,7 @@ export default function EventsAdmin() {
                                </div>
                                
                                <div className="space-y-3">
-                                  {item.speakers?.map((speaker: any, sIdx: number) => (
+                                  {item.speakers?.map((speaker, sIdx: number) => (
                                      <div key={sIdx} className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm space-y-2 relative">
                                         <div className="flex gap-2">
                                            <Input 
@@ -395,7 +471,7 @@ export default function EventsAdmin() {
                 </div>
                 
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                  {formData.pricing_tiers.map((tier: any, index: number) => (
+                  {formData.pricing_tiers.map((tier, index: number) => (
                     <div key={index} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3 relative">
                       <Button 
                         type="button" 
@@ -465,28 +541,28 @@ export default function EventsAdmin() {
         <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-primary" /></div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {events.map((event) => (
-            <Card key={event.id} className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white border border-slate-50">
+          {events.map((eventItem) => (
+            <Card key={eventItem.id} className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white border border-slate-50">
               <div className="aspect-video relative overflow-hidden">
-                <img src={event.image_url} className="w-full h-full object-cover" />
+                <img src={eventItem.image_url || "/img/1.jpeg"} alt={`Imagen promocional de ${eventItem.title}`} className="w-full h-full object-cover" />
                 <div className="absolute top-4 right-4 flex gap-2">
-                  <button onClick={() => openEditModal(event)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-primary"><Edit2 className="w-4 h-4" /></button>
-                  <button onClick={() => deleteEvent(event.id)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => openEditModal(eventItem)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-primary"><Edit2 className="w-4 h-4" /></button>
+                  <button onClick={() => deleteEvent(eventItem.id)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
               <CardContent className="p-8">
-                <h3 className="text-2xl font-bold text-slate-900 mb-4">{event.title}</h3>
+                <h3 className="text-2xl font-bold text-slate-900 mb-4">{eventItem.title}</h3>
                 <div className="space-y-2 mb-6">
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">General (Presencial):</span>
-                    <span className="font-bold text-primary">${new Intl.NumberFormat('es-CO').format(event.tiered_pricing?.presencial?.general || 0)}</span>
+                    <span className="font-bold text-primary">${new Intl.NumberFormat('es-CO').format(eventItem.tiered_pricing?.presencial?.general || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Asociados:</span>
                     <span className="font-bold text-emerald-500">Gratis</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-slate-400 text-sm"><MapPin className="w-4 h-4" />{event.location}</div>
+                <div className="flex items-center gap-2 text-slate-400 text-sm"><MapPin className="w-4 h-4" />{eventItem.location}</div>
               </CardContent>
             </Card>
           ))}
