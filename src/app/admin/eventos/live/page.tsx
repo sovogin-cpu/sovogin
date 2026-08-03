@@ -1,19 +1,15 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { 
   Video, 
   Plus, 
   Users, 
-  Search, 
-  MoreVertical, 
   Play, 
   Settings2, 
   Trash2, 
   CheckCircle2, 
-  X,
   Upload,
-  AlertCircle,
   Loader2,
   FileText,
   Link as LinkIcon
@@ -31,16 +27,58 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 
+interface EventLive {
+  id: string;
+  title: string;
+  youtube_video_id: string;
+  youtube_chat_id?: string | null;
+  banner_url?: string | null;
+  is_active: boolean;
+  created_at?: string;
+}
+
+interface LiveFormData {
+  title: string;
+  youtube_video_id: string;
+  youtube_chat_id: string;
+  banner_url: string;
+  is_active: boolean;
+}
+
+interface ExcelAttendeeRow {
+  Nombre?: string;
+  nombre?: string;
+  NAME?: string;
+  FullName?: string;
+  Email?: string;
+  email?: string;
+  EMAIL?: string;
+  Documento?: string;
+  documento?: string;
+  Cedula?: string;
+  cedula?: string;
+  DOCUMENTO?: string;
+  Identification?: string;
+  [key: string]: unknown;
+}
+
+interface AttendeePayload {
+  event_live_id: string;
+  name: string;
+  email: string;
+  document_number: string;
+}
+
 export default function LiveEventsAdmin() {
-  const supabase = createClient();
-  const [lives, setLives] = useState<any[]>([]);
+  const supabase = useMemo(() => createClient(), []);
+  const [lives, setLives] = useState<EventLive[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAttendeesModalOpen, setIsAttendeesModalOpen] = useState(false);
-  const [selectedLive, setSelectedLive] = useState<any>(null);
+  const [selectedLive, setSelectedLive] = useState<EventLive | null>(null);
   
   // Form states
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<LiveFormData>({
     title: "",
     youtube_video_id: "",
     youtube_chat_id: "",
@@ -53,18 +91,37 @@ export default function LiveEventsAdmin() {
 
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    fetchLives();
-  }, []);
+  const fetchLives = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('event_lives')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error("Error fetching lives:", error.message);
+      }
+      if (data) setLives(data as EventLive[]);
+    } catch (error: unknown) {
+      console.error("Detailed error fetching lives:", error instanceof Error ? error.message : error);
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase]);
 
-  async function fetchLives() {
-    const { data, error } = await supabase
-      .from('event_lives')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (data) setLives(data);
-    setLoading(false);
-  }
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialLives() {
+      await fetchLives();
+      if (!isMounted) return;
+    }
+
+    void loadInitialLives();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchLives]);
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -86,9 +143,10 @@ export default function LiveEventsAdmin() {
         .from('event-images')
         .getPublicUrl(filePath);
 
-      setFormData({ ...formData, banner_url: publicUrl });
-    } catch (error: any) {
-      alert("Error al subir imagen: " + error.message);
+      setFormData(prev => ({ ...prev, banner_url: publicUrl }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al subir la imagen";
+      alert("Error al subir imagen: " + message);
     } finally {
       setUploading(false);
     }
@@ -98,14 +156,19 @@ export default function LiveEventsAdmin() {
     e.preventDefault();
     const payload = { ...formData };
     
-    if (selectedLive) {
-      const { error } = await supabase.from('event_lives').update(payload).eq('id', selectedLive.id);
-      if (!error) setIsModalOpen(false);
-    } else {
-      const { error } = await supabase.from('event_lives').insert([payload]);
-      if (!error) setIsModalOpen(false);
+    try {
+      if (selectedLive) {
+        const { error } = await supabase.from('event_lives').update(payload).eq('id', selectedLive.id);
+        if (!error) setIsModalOpen(false);
+      } else {
+        const { error } = await supabase.from('event_lives').insert([payload]);
+        if (!error) setIsModalOpen(false);
+      }
+      void fetchLives();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al guardar la transmisión";
+      alert("Error: " + message);
     }
-    fetchLives();
   }
 
   async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -113,22 +176,17 @@ export default function LiveEventsAdmin() {
     
     setUploading(true);
     const file = e.target.files[0];
-    console.log("Archivo seleccionado:", file.name, file.size, "bytes");
 
     const reader = new FileReader();
 
     reader.onload = async (evt) => {
       try {
-        console.log("FileReader terminó de leer el archivo");
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        console.log("Libro de Excel leído. Hojas:", workbook.SheetNames);
 
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-        console.log("Filas encontradas en Excel:", jsonData.length);
+        const jsonData = XLSX.utils.sheet_to_json<ExcelAttendeeRow>(worksheet);
 
         if (jsonData.length === 0) {
           alert("El archivo parece estar vacío.");
@@ -136,27 +194,21 @@ export default function LiveEventsAdmin() {
           return;
         }
 
-        const attendees = jsonData.map((row: any, index: number) => {
+        const attendees: AttendeePayload[] = jsonData.map((row) => {
           const values = Object.values(row);
-          // Try to find columns by name or position
-          const name = row.Nombre || row.nombre || row.NAME || row.FullName || values[0];
-          const email = row.Email || row.email || row.EMAIL || values[1];
-          const doc = row.Documento || row.documento || row.Cedula || row.cedula || row.DOCUMENTO || row.Identification || values[2];
-
-          if (index === 0) console.log("Ejemplo de mapeo Fila 1:", { name, email, doc });
+          const name = row.Nombre || row.nombre || row.NAME || row.FullName || (typeof values[0] === 'string' || typeof values[0] === 'number' ? values[0] : "");
+          const email = row.Email || row.email || row.EMAIL || (typeof values[1] === 'string' || typeof values[1] === 'number' ? values[1] : "");
+          const doc = row.Documento || row.documento || row.Cedula || row.cedula || row.DOCUMENTO || row.Identification || (typeof values[2] === 'string' || typeof values[2] === 'number' ? values[2] : "");
 
           return {
             event_live_id: selectedLive.id,
-            name: name?.toString().trim() || "Sin Nombre",
-            email: email?.toString().trim().toLowerCase() || "",
-            document_number: doc?.toString().trim() || ""
+            name: name ? String(name).trim() : "Sin Nombre",
+            email: email ? String(email).trim().toLowerCase() : "",
+            document_number: doc ? String(doc).trim() : ""
           };
         }).filter(a => a.email && a.document_number);
 
-        // Filter out duplicates within the same file/list to avoid Postgres "cannot affect row a second time" error
         const uniqueAttendees = Array.from(new Map(attendees.map(item => [item.email, item])).values());
-
-        console.log("Asistentes únicos procesados para subir:", uniqueAttendees.length);
 
         if (uniqueAttendees.length === 0) {
           alert("No se encontraron registros con Email y Documento válidos. Verifique que el archivo tenga datos.");
@@ -176,12 +228,12 @@ export default function LiveEventsAdmin() {
           setIsAttendeesModalOpen(false);
           setBulkData("");
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Error desconocido";
         console.error("Error crítico en handleExcelUpload:", err);
-        alert("Error al procesar el archivo Excel: " + err.message);
+        alert("Error al procesar el archivo Excel: " + message);
       } finally {
         setUploading(false);
-        // Reset the input value so the same file can be selected again
         e.target.value = "";
       }
     };
@@ -198,38 +250,46 @@ export default function LiveEventsAdmin() {
   async function handleBulkUpload() {
     if (!selectedLive || !bulkData) return;
     
-    // Parse TSV/Excel data: Name \t Email \t Doc
-    const rows = bulkData.split('\n').filter(r => r.trim());
-    const attendees = rows.map(row => {
-      const parts = row.split('\t');
-      return {
-        event_live_id: selectedLive.id,
-        name: parts[0]?.trim(),
-        email: parts[1]?.trim()?.toLowerCase(),
-        document_number: parts[2]?.trim()
-      };
-    }).filter(a => a.email && a.document_number);
+    try {
+      const rows = bulkData.split('\n').filter(r => r.trim());
+      const attendees: AttendeePayload[] = rows.map(row => {
+        const parts = row.split('\t');
+        return {
+          event_live_id: selectedLive.id,
+          name: parts[0]?.trim() || "",
+          email: parts[1]?.trim()?.toLowerCase() || "",
+          document_number: parts[2]?.trim() || ""
+        };
+      }).filter(a => a.email && a.document_number);
 
-    // Filter out duplicates within the same list
-    const uniqueAttendees = Array.from(new Map(attendees.map(item => [item.email, item])).values());
+      const uniqueAttendees = Array.from(new Map(attendees.map(item => [item.email, item])).values());
 
-    const { error } = await supabase
-      .from('event_attendees')
-      .upsert(uniqueAttendees, { onConflict: 'event_live_id,email' });
-    
-    if (error) {
-      alert("Error al cargar: " + error.message);
-    } else {
-      alert(`${attendees.length} asistentes cargados con éxito.`);
-      setIsAttendeesModalOpen(false);
-      setBulkData("");
+      const { error } = await supabase
+        .from('event_attendees')
+        .upsert(uniqueAttendees, { onConflict: 'event_live_id,email' });
+      
+      if (error) {
+        alert("Error al cargar: " + error.message);
+      } else {
+        alert(`${attendees.length} asistentes cargados con éxito.`);
+        setIsAttendeesModalOpen(false);
+        setBulkData("");
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al cargar asistentes";
+      alert("Error: " + message);
     }
   }
 
   async function deleteLive(id: string) {
     if (!confirm("¿Eliminar esta transmisión? Se borrarán también los inscritos.")) return;
-    await supabase.from('event_lives').delete().eq('id', id);
-    fetchLives();
+    try {
+      await supabase.from('event_lives').delete().eq('id', id);
+      void fetchLives();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar la transmisión";
+      alert("Error: " + message);
+    }
   }
 
   const copyLiveLink = (id: string) => {
@@ -302,7 +362,7 @@ export default function LiveEventsAdmin() {
                 <div className="flex flex-col gap-4">
                   {formData.banner_url && (
                     <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-100 shadow-sm">
-                      <img src={formData.banner_url} alt="Banner Preview" className="w-full h-full object-cover" />
+                      <img src={formData.banner_url} alt={`Vista previa del banner de ${formData.title || "la transmisión"}`} className="w-full h-full object-cover" />
                       <button 
                         type="button" 
                         onClick={() => setFormData({...formData, banner_url: ""})}
@@ -351,80 +411,96 @@ export default function LiveEventsAdmin() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {lives.map((live) => (
-          <div key={live.id} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl transition-all duration-300">
-            <div className="aspect-video bg-slate-900 relative">
-              <img 
-                src={live.banner_url || "/img/1.jpeg"} 
-                className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-500" 
-                alt="" 
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white ring-4 ring-white/10 group-hover:scale-110 transition-transform">
-                  <Play className="w-8 h-8 fill-current" />
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {lives.map((live) => (
+            <div key={live.id} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl transition-all duration-300">
+              <div className="aspect-video bg-slate-900 relative">
+                <img 
+                  src={live.banner_url || "/img/1.jpeg"} 
+                  className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-500" 
+                  alt={`Banner de ${live.title}`} 
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white ring-4 ring-white/10 group-hover:scale-110 transition-transform">
+                    <Play className="w-8 h-8 fill-current" />
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4">
+                  <Badge className={live.is_active ? "bg-emerald-500" : "bg-slate-400"}>
+                    {live.is_active ? "Activo" : "Inactivo"}
+                  </Badge>
                 </div>
               </div>
-              <div className="absolute top-4 right-4">
-                <Badge className={live.is_active ? "bg-emerald-500" : "bg-slate-400"}>
-                  {live.is_active ? "Activo" : "Inactivo"}
-                </Badge>
-              </div>
-            </div>
-            
-            <div className="p-8 space-y-6">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900 leading-tight mb-2">{live.title}</h3>
-                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-                  <Video className="w-4 h-4" />
-                  <span>ID: {live.youtube_video_id}</span>
+              
+              <div className="p-8 space-y-6">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 leading-tight mb-2">{live.title}</h3>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <Video className="w-4 h-4" />
+                    <span>ID: {live.youtube_video_id}</span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                <div className="flex gap-2">
+                <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => { setSelectedLive(live); setIsAttendeesModalOpen(true); }}
+                      className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100"
+                      title="Gestionar Asistentes"
+                    >
+                      <Users className="w-5 h-5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => copyLiveLink(live.id)}
+                      className="h-10 w-10 rounded-xl bg-primary/5 text-primary hover:bg-primary/10"
+                      title="Copiar Enlace del Evento"
+                    >
+                      <LinkIcon className="w-5 h-5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => { 
+                        setSelectedLive(live); 
+                        setFormData({
+                          title: live.title || "",
+                          youtube_video_id: live.youtube_video_id || "",
+                          youtube_chat_id: live.youtube_chat_id || "",
+                          banner_url: live.banner_url || "",
+                          is_active: live.is_active ?? true
+                        }); 
+                        setIsModalOpen(true); 
+                      }}
+                      className="h-10 w-10 rounded-xl bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      title="Editar"
+                    >
+                      <Settings2 className="w-5 h-5" />
+                    </Button>
+                  </div>
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    onClick={() => { setSelectedLive(live); setIsAttendeesModalOpen(true); }}
-                    className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100"
-                    title="Gestionar Asistentes"
+                    onClick={() => deleteLive(live.id)}
+                    className="h-10 w-10 rounded-xl bg-red-50 text-red-600 hover:bg-red-100"
+                    title="Eliminar"
                   >
-                    <Users className="w-5 h-5" />
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => copyLiveLink(live.id)}
-                    className="h-10 w-10 rounded-xl bg-primary/5 text-primary hover:bg-primary/10"
-                    title="Copiar Enlace del Evento"
-                  >
-                    <LinkIcon className="w-5 h-5" />
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => { setSelectedLive(live); setFormData(live); setIsModalOpen(true); }}
-                    className="h-10 w-10 rounded-xl bg-slate-50 text-slate-600 hover:bg-slate-100"
-                    title="Editar"
-                  >
-                    <Settings2 className="w-5 h-5" />
+                    <Trash2 className="w-5 h-5" />
                   </Button>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => deleteLive(live.id)}
-                  className="h-10 w-10 rounded-xl bg-red-50 text-red-600 hover:bg-red-100"
-                  title="Eliminar"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </Button>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Attendees Modal */}
       <Dialog open={isAttendeesModalOpen} onOpenChange={setIsAttendeesModalOpen}>
