@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Search, Loader2, Trash2, FileText, CheckCircle2, XCircle, Clock, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,31 @@ import {
 } from "@/components/ui/table";
 import * as XLSX from "xlsx";
 
-function maskDocument(docType?: string, docNum?: string) {
+interface RegistrationEvent {
+  title: string;
+}
+
+interface Registration {
+  id: string;
+  full_name: string;
+  email: string;
+  customer_document_type?: string | null;
+  document_number?: string | null;
+  phone?: string | null;
+  amount?: number | null;
+  modality?: string | null;
+  category?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  payment_reference?: string | null;
+  payment_id?: string | null;
+  origin?: string | null;
+  paid_at?: string | null;
+  created_at: string;
+  events?: RegistrationEvent | null;
+}
+
+function maskDocument(docType?: string | null, docNum?: string | null) {
   if (!docNum) return "-";
   const clean = docNum.trim();
   if (clean.length <= 4) return `${docType ? docType + " - " : ""}${clean}`;
@@ -24,38 +48,50 @@ function maskDocument(docType?: string, docNum?: string) {
 }
 
 export default function RegistrationsAdmin() {
-  const [registrations, setRegistrations] = useState<any[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  useEffect(() => {
-    fetchRegistrations();
-  }, []);
-
-  async function fetchRegistrations() {
+  const fetchRegistrations = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('registrations')
         .select('*, events(title)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setRegistrations(data || []);
-    } catch (error) {
-      console.error("Error fetching registrations:", error);
+      setRegistrations((data as Registration[]) || []);
+    } catch (error: unknown) {
+      console.error("Error fetching registrations:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialRegistrations() {
+      await fetchRegistrations();
+      if (!isMounted) return;
+    }
+
+    void loadInitialRegistrations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchRegistrations]);
 
   async function deleteRegistration(id: string) {
     if (!confirm("¿Eliminar esta inscripción?")) return;
     try {
       const { error } = await supabase.from('registrations').delete().eq('id', id);
       if (error) throw error;
-      fetchRegistrations();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+      void fetchRegistrations();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error al eliminar la inscripción";
+      alert("Error: " + message);
     }
   }
 
