@@ -14,7 +14,9 @@ import {
   Users2,
   Image as ImageIcon,
   CheckCircle2,
-  FolderKanban
+  FolderKanban,
+  Newspaper,
+  FolderTree
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -25,6 +27,8 @@ const menuItems = [
   { name: "Inscritos", href: "/admin/inscritos", icon: CheckCircle2 },
   { name: "Transmisiones", href: "/admin/eventos/live", icon: ImageIcon },
   { name: "Biblioteca Multimedia", href: "/admin/media", icon: FolderKanban },
+  { name: "Contenidos", href: "/admin/contenidos", icon: Newspaper },
+  { name: "Categorías CMS", href: "/admin/categorias", icon: FolderTree },
   { name: "Miembros", href: "/admin/miembros", icon: Users },
   { name: "Recursos", href: "/admin/recursos", icon: FileText },
   { name: "Banners", href: "/admin/banners", icon: ImageIcon },

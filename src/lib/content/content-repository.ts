@@ -195,6 +195,154 @@ export async function listContentCategories(
   }
 }
 
+export async function listAllContentCategories(
+  supabase: SupabaseClient,
+  channel?: ContentChannel | "all"
+): Promise<ContentCategory[]> {
+  try {
+    let query = supabase
+      .from("content_categories")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (channel && channel !== "all") {
+      query = query.or(`channel.eq.${channel},channel.is.null`);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data as ContentCategory[]) || [];
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Error al consultar todas las categorías de contenido.";
+    console.error("Error consultando todas las categorías:", message);
+    throw new Error(
+      `No fue posible consultar todas las categorías de contenido: ${message}`
+    );
+  }
+}
+
+export async function createContentCategory(
+  supabase: SupabaseClient,
+  payload: {
+    channel?: ContentChannel | null;
+    name: string;
+    slug?: string;
+    description?: string | null;
+    is_active?: boolean;
+  }
+): Promise<ContentCategory> {
+  try {
+    if (!payload.name || payload.name.trim() === "") {
+      throw new Error("El nombre de la categoría es obligatorio.");
+    }
+
+    const rawSlug = payload.slug || payload.name;
+    const normalizedSlug = normalizeContentSlug(rawSlug);
+    if (!normalizedSlug) {
+      throw new Error("El slug de la categoría no es válido.");
+    }
+
+    const insertPayload = {
+      channel: payload.channel || null,
+      name: payload.name.trim(),
+      slug: normalizedSlug,
+      description: payload.description?.trim() || null,
+      is_active: payload.is_active ?? true,
+    };
+
+    const { data, error } = await supabase
+      .from("content_categories")
+      .insert([insertPayload])
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error("No se devolvió la categoría creada.");
+
+    return data as ContentCategory;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Error al crear la categoría de contenido.";
+    console.error("Error creando categoría:", message);
+    throw new Error(`No fue posible crear la categoría: ${message}`);
+  }
+}
+
+export async function updateContentCategory(
+  supabase: SupabaseClient,
+  id: string,
+  payload: {
+    channel?: ContentChannel | null;
+    name?: string;
+    slug?: string;
+    description?: string | null;
+    is_active?: boolean;
+  }
+): Promise<ContentCategory> {
+  try {
+    const updates: Record<string, unknown> = {};
+
+    if (payload.name !== undefined) {
+      if (payload.name.trim() === "") {
+        throw new Error("El nombre de la categoría no puede estar vacío.");
+      }
+      updates.name = payload.name.trim();
+    }
+
+    if (payload.slug !== undefined || payload.name !== undefined) {
+      const rawSlug = payload.slug || payload.name || "";
+      if (rawSlug) {
+        updates.slug = normalizeContentSlug(rawSlug);
+      }
+    }
+
+    if (payload.channel !== undefined) {
+      updates.channel = payload.channel || null;
+    }
+
+    if (payload.description !== undefined) {
+      updates.description = payload.description?.trim() || null;
+    }
+
+    if (payload.is_active !== undefined) {
+      updates.is_active = payload.is_active;
+    }
+
+    const { data, error } = await supabase
+      .from("content_categories")
+      .update(updates)
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error("No se devolvió la categoría actualizada.");
+
+    return data as ContentCategory;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Error al actualizar la categoría.";
+    console.error(`Error actualizando categoría ${id}:`, message);
+    throw new Error(`No fue posible actualizar la categoría: ${message}`);
+  }
+}
+
+export async function toggleContentCategoryActive(
+  supabase: SupabaseClient,
+  id: string,
+  is_active: boolean
+): Promise<ContentCategory> {
+  return updateContentCategory(supabase, id, { is_active });
+}
+
 export async function setContentPostCategories(
   supabase: SupabaseClient,
   postId: string,
