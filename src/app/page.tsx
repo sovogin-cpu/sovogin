@@ -1,4 +1,5 @@
 import { Hero } from "@/components/home/Hero";
+import { CommercialBenefitsSection } from "@/components/home/CommercialBenefitsSection";
 import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
 
@@ -165,6 +166,9 @@ export default async function Home() {
           </div>
         </section>
       )}
+
+      {/* Commercial Benefits Section */}
+      <CommercialBenefitsSection />
     </div>
   );
 }
