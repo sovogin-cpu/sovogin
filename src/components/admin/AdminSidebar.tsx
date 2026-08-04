@@ -36,6 +36,7 @@ const menuItems = [
   { name: "Chatbot", href: "/admin/chatbot", icon: MessageSquare },
   { name: "Junta Directiva", href: "/admin/junta", icon: Users2 },
   { name: "Beneficios", href: "/admin/beneficios", icon: CheckCircle2 },
+  { name: "Beneficios Comerciales", href: "/admin/beneficios-comerciales", icon: FolderKanban },
   { name: "Patrocinadores", href: "/admin/sponsors", icon: ImageIcon },
   { name: "Configuración", href: "/admin/config", icon: Settings },
 ];
