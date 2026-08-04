@@ -29,6 +29,7 @@ const menuItems = [
   { name: "Biblioteca Multimedia", href: "/admin/media", icon: FolderKanban },
   { name: "Contenidos", href: "/admin/contenidos", icon: Newspaper },
   { name: "Categorías CMS", href: "/admin/categorias", icon: FolderTree },
+  { name: "Directorio Médico", href: "/admin/directorio-medico", icon: Users2 },
   { name: "Miembros", href: "/admin/miembros", icon: Users },
   { name: "Recursos", href: "/admin/recursos", icon: FileText },
   { name: "Banners", href: "/admin/banners", icon: ImageIcon },
