@@ -13,7 +13,8 @@ import {
   LogOut,
   Users2,
   Image as ImageIcon,
-  CheckCircle2
+  CheckCircle2,
+  FolderKanban
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -23,6 +24,7 @@ const menuItems = [
   { name: "Eventos", href: "/admin/eventos", icon: Calendar },
   { name: "Inscritos", href: "/admin/inscritos", icon: CheckCircle2 },
   { name: "Transmisiones", href: "/admin/eventos/live", icon: ImageIcon },
+  { name: "Biblioteca Multimedia", href: "/admin/media", icon: FolderKanban },
   { name: "Miembros", href: "/admin/miembros", icon: Users },
   { name: "Recursos", href: "/admin/recursos", icon: FileText },
   { name: "Banners", href: "/admin/banners", icon: ImageIcon },
