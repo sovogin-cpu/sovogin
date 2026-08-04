@@ -22,6 +22,7 @@ const navItems = [
     ]
   },
   { name: "Innovación", href: "/innovacion" },
+  { name: "A la comunidad", href: "/comunidad" },
   { name: "Eventos", href: "/simposios" },
   { name: "Recursos", href: "/recursos" },
   { name: "Contacto", href: "/contacto" },
