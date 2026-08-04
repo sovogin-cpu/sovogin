@@ -21,6 +21,7 @@ const navItems = [
       { name: "Portal de Pagos", href: "/pagos" },
     ]
   },
+  { name: "Innovación", href: "/innovacion" },
   { name: "Eventos", href: "/simposios" },
   { name: "Recursos", href: "/recursos" },
   { name: "Contacto", href: "/contacto" },
