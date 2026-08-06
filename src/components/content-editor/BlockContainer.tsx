@@ -7,7 +7,6 @@ import { BlockRenderer } from "./BlockRenderer";
 
 interface BlockContainerProps {
   block: ContentBlock;
-  index: number;
   isSelected: boolean;
   isEditing: boolean;
   isFirst: boolean;
@@ -41,15 +40,19 @@ export function BlockContainer({
     <div
       onClick={onSelect}
       className={`group relative rounded-xl transition-all duration-150 p-4 bg-white dark:bg-slate-900 border-2 cursor-pointer ${
-        isSelected
-          ? "border-indigo-600 dark:border-indigo-500 ring-4 ring-indigo-500/10 shadow-lg"
+        isEditing
+          ? "border-indigo-600 dark:border-indigo-500 ring-4 ring-indigo-500/15 shadow-xl"
+          : isSelected
+          ? "border-indigo-400 dark:border-indigo-600 ring-2 ring-indigo-500/10 shadow-md"
           : "border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm"
       }`}
     >
-      {/* Contextual Toolbar (Appears on Hover or Selection) */}
+      {/* Contextual Toolbar */}
       <div
         className={`absolute -top-4 right-4 z-20 transition-opacity duration-150 ${
-          isSelected ? "opacity-100 pointer-events-auto" : "opacity-0 group-hover:opacity-100 pointer-events-auto"
+          isSelected || isEditing
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 group-hover:opacity-100 pointer-events-auto"
         }`}
         onClick={(e) => e.stopPropagation()}
       >

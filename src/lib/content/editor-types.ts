@@ -18,6 +18,12 @@ export interface EditorBlockDescriptor {
   createDefault: () => ContentBlock;
 }
 
+export interface BlockPropertiesProps<T extends ContentBlock = ContentBlock> {
+  block: T;
+  onChange: (updatedBlock: T) => void;
+  mode?: EditorMode;
+}
+
 export type EditorAction =
   | { type: "SELECT_BLOCK"; payload: { id: string | null } }
   | { type: "SET_EDITING_BLOCK"; payload: { id: string | null } }
