@@ -35,7 +35,7 @@ import {
   normalizeContentSlug,
   slugifyContentTitle,
 } from "@/lib/content/content-utils";
-import { ContentBlockEditor } from "./ContentBlockEditor";
+import { ContentEditor as VisualContentEditor } from "@/components/content-editor/ContentEditor";
 import { ContentPostSettings } from "./ContentPostSettings";
 
 interface ContentEditorProps {
@@ -383,14 +383,14 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
             </div>
           </div>
 
-          {/* Block Editor */}
-          <ContentBlockEditor
+          {/* Visual Block Editor */}
+          <VisualContentEditor
             blocks={blocks}
             onChange={(newBlocks) => {
               setBlocks(newBlocks);
               markDirty();
             }}
-            documentMode={documentMode}
+            mode={documentMode}
           />
         </div>
 
