@@ -8,40 +8,20 @@ import {
   listPublicContentCategories,
 } from "@/lib/content/public-content-service";
 import { ContentCategory, ContentChannel, ContentPostWithRelations } from "@/lib/content/types";
+import { SectionBannerCarousel } from "@/components/banners/SectionBannerCarousel";
+import { BannerPosition } from "@/lib/banners/banner-types";
 import { ContentChannelFilters } from "./ContentChannelFilters";
 import { ContentPostGrid } from "./ContentPostGrid";
-import { PublicMedia } from "./PublicMedia";
 
-export type BannerPosition =
-  | "HOME_HERO"
-  | "EVENTS_HEADER"
-  | "RESOURCES_HEADER"
-  | "ASSOCIATION_HEADER"
-  | "INNOVATION_HEADER"
-  | "INNOVATION_INLINE"
-  | "COMMUNITY_HEADER"
-  | "COMMUNITY_INLINE"
-  | "BENEFITS_HEADER"
-  | "BENEFITS_INLINE"
-  | "DIRECTORY_HEADER"
-  | "DIRECTORY_INLINE";
-
-interface BannerRecord {
-  id: string;
-  title: string;
-  image_url: string;
-  media_id?: string | null;
-  link_url?: string | null;
-  position: BannerPosition;
-}
+export type { BannerPosition };
 
 interface ContentChannelPageProps {
   channel: ContentChannel;
   title: string;
   description: string;
   basePath: string;
-  headerBannerPosition?: BannerPosition;
-  inlineBannerPosition?: BannerPosition;
+  headerBannerPosition?: BannerPosition | string;
+  inlineBannerPosition?: BannerPosition | string;
 }
 
 export const ContentChannelPage: React.FC<ContentChannelPageProps> = ({
@@ -53,11 +33,8 @@ export const ContentChannelPage: React.FC<ContentChannelPageProps> = ({
 }) => {
   const [posts, setPosts] = useState<ContentPostWithRelations[]>([]);
   const [categories, setCategories] = useState<ContentCategory[]>([]);
-  const [headerBanner, setHeaderBanner] = useState<BannerRecord | null>(null);
-
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryId, setCategoryId] = useState("all");
-
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -76,27 +53,9 @@ export const ContentChannelPage: React.FC<ContentChannelPageProps> = ({
           listPublicContentCategories(supabase, channel),
         ]);
 
-        let bannerRecord: BannerRecord | null = null;
-
-        if (headerBannerPosition) {
-          const { data: bannerData } = await supabase
-            .from("banners")
-            .select("id, title, image_url, media_id, link_url, position")
-            .eq("position", headerBannerPosition)
-            .eq("is_active", true)
-            .order("display_order", { ascending: true })
-            .limit(1)
-            .maybeSingle();
-
-          if (bannerData) {
-            bannerRecord = bannerData as BannerRecord;
-          }
-        }
-
         if (!isCancelled) {
           setPosts(contentResult.posts);
           setCategories(catData);
-          setHeaderBanner(bannerRecord);
           setLoading(false);
         }
       } catch (err: unknown) {
@@ -110,7 +69,7 @@ export const ContentChannelPage: React.FC<ContentChannelPageProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [channel, searchQuery, categoryId, headerBannerPosition]);
+  }, [channel, searchQuery, categoryId]);
 
   const handleClearFilters = () => {
     setSearchQuery("");
@@ -120,24 +79,9 @@ export const ContentChannelPage: React.FC<ContentChannelPageProps> = ({
   return (
     <div className="min-h-screen bg-slate-50/50 pt-28 pb-20">
       <div className="container mx-auto px-4 max-w-6xl space-y-8">
-        {/* Header Banner if present */}
-        {headerBanner && (
-          <div className="rounded-3xl overflow-hidden shadow-md bg-slate-900 relative">
-            {headerBanner.media_id ? (
-              <PublicMedia
-                mediaId={headerBanner.media_id}
-                alt={headerBanner.title}
-                className="w-full h-48 sm:h-64 object-cover"
-              />
-            ) : headerBanner.image_url ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={headerBanner.image_url}
-                alt={headerBanner.title}
-                className="w-full h-48 sm:h-64 object-cover"
-              />
-            ) : null}
-          </div>
+        {/* Header Banner Carousel */}
+        {headerBannerPosition && (
+          <SectionBannerCarousel position={headerBannerPosition as BannerPosition} />
         )}
 
         {/* Header Title Section */}

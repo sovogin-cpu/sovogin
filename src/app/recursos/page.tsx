@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
+import { SectionBannerCarousel } from "@/components/banners/SectionBannerCarousel";
 
 interface PublicResource {
   id: string;
@@ -146,7 +147,11 @@ export default function RecursosPage() {
 
   if (!accessGranted) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 pt-20 pb-20">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 pt-28 pb-20 gap-8">
+        <div className="max-w-4xl w-full">
+          <SectionBannerCarousel position="RESOURCES_HEADER" />
+        </div>
+
         <div className="max-w-md w-full relative">
           <div className="absolute inset-0 bg-primary/20 blur-[100px] rounded-full -z-10" />
           <div className="bg-white/5 backdrop-blur-2xl p-10 rounded-[3rem] border border-white/10 shadow-2xl space-y-8">
@@ -221,7 +226,9 @@ export default function RecursosPage() {
     <div className="bg-slate-50 min-h-screen pt-24 pb-24">
       {/* Header */}
       <div className="bg-white border-b border-slate-100 py-16">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-4 space-y-8">
+          <SectionBannerCarousel position="RESOURCES_HEADER" />
+
           <div className="flex flex-col lg:flex-row justify-between items-center gap-12">
             <div className="max-w-2xl space-y-4">
               <div className="flex items-center gap-3 text-primary font-bold text-sm uppercase tracking-widest">

@@ -9,11 +9,13 @@ import {
   moveBlockDown,
   moveBlockUp,
   removeBlock,
+  reorderBlocks,
 } from "@/lib/content/editor-utils";
 import { EmptyEditor } from "./EmptyEditor";
 import { BlockContainer } from "./BlockContainer";
 import { AddBlockMenu } from "./AddBlockMenu";
 import { BlockPropertiesPanel } from "./BlockPropertiesPanel";
+import { useBlockDragAndDrop } from "./useBlockDragAndDrop";
 import { PlusCircle } from "lucide-react";
 
 interface ContentEditorProps {
@@ -38,6 +40,21 @@ export function ContentEditor({
     editingBlockId !== null
       ? blocks.find((block) => block.id === editingBlockId) || null
       : null;
+
+  // Drag and Drop Hook
+  const handleReorder = (sourceIndex: number, destinationIndex: number) => {
+    const updated = reorderBlocks(blocks, sourceIndex, destinationIndex);
+    onChange(updated);
+  };
+
+  const {
+    dragState,
+    handleDragStart,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleDragEnd,
+  } = useBlockDragAndDrop({ onReorder: handleReorder });
 
   const handleOpenAddMenu = (targetId?: string) => {
     setTargetInsertBlockId(targetId);
@@ -124,10 +141,15 @@ export function ContentEditor({
       {/* Main Canvas Area */}
       <div className="flex-1 min-w-0 w-full space-y-4">
         {/* List of blocks */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {blocks.map((block, index) => {
             const isSelected = selectedBlockId === block.id;
             const isEditing = editingBlockId === block.id;
+            const isDragged = dragState.draggedBlockId === block.id;
+            const dropPos =
+              dragState.targetIndex === index && dragState.draggedBlockId !== block.id
+                ? dragState.position
+                : null;
 
             return (
               <BlockContainer
@@ -137,6 +159,8 @@ export function ContentEditor({
                 isEditing={isEditing}
                 isFirst={index === 0}
                 isLast={index === blocks.length - 1}
+                isDragged={isDragged}
+                dropPosition={dropPos}
                 onSelect={() => handleSelectBlock(block.id)}
                 onToggleEdit={() => handleToggleEdit(block.id)}
                 onDuplicate={() => handleDuplicate(block.id)}
@@ -144,11 +168,21 @@ export function ContentEditor({
                 onMoveUp={() => handleMoveUp(block.id)}
                 onMoveDown={() => handleMoveDown(block.id)}
                 onInsertAfter={() => handleOpenAddMenu(block.id)}
+                onDragStart={(e) => handleDragStart(block.id, index, e)}
+                onDragOver={(e) => handleDragOver(block.id, index, e)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(block.id, index, e)}
+                onDragEnd={handleDragEnd}
                 onChange={handleUpdateBlock}
               />
             );
           })}
         </div>
+
+        {/* Accessibility Helper Text */}
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center italic">
+          Sugerencia: Puedes arrastrar los bloques usando el asa vertical de la barra de herramientas o utilizar los botones Subir / Bajar para reordenar.
+        </p>
 
         {/* Add block button at the bottom */}
         <div className="pt-2 flex justify-center">
@@ -163,7 +197,7 @@ export function ContentEditor({
         </div>
       </div>
 
-      {/* Side Properties Panel (Desktop: Sidebar, Mobile: Fixed/Drawer) */}
+      {/* Side Properties Panel */}
       {activeEditingBlock && (
         <div className="w-full lg:w-auto lg:sticky lg:top-4 z-30">
           <BlockPropertiesPanel

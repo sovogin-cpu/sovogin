@@ -13,6 +13,8 @@ import {
 import { ContentBlockType } from "@/lib/content/types";
 import { formatContentBlockType } from "@/lib/content/content-utils";
 
+import { DragHandle } from "./DragHandle";
+
 interface BlockToolbarProps {
   blockType: ContentBlockType;
   isEditing: boolean;
@@ -24,6 +26,8 @@ interface BlockToolbarProps {
   onMoveUp: () => void;
   onMoveDown: () => void;
   onInsertAfter: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }
 
 export function BlockToolbar({
@@ -37,9 +41,16 @@ export function BlockToolbar({
   onMoveUp,
   onMoveDown,
   onInsertAfter,
+  onDragStart,
+  onDragEnd,
 }: BlockToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-900/90 dark:bg-slate-900 border border-slate-700/60 rounded-lg text-white shadow-xl backdrop-blur-md text-xs select-none">
+    <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-900/95 dark:bg-slate-900 border border-slate-700/60 rounded-lg text-white shadow-xl backdrop-blur-md text-xs select-none">
+      {/* Drag Handle */}
+      {onDragStart && onDragEnd && (
+        <DragHandle onDragStart={onDragStart} onDragEnd={onDragEnd} />
+      )}
+
       {/* Label */}
       <span className="font-semibold text-slate-300 tracking-wide pr-2 border-r border-slate-700">
         {formatContentBlockType(blockType)}

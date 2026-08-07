@@ -24,9 +24,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type BannerPosition =
-  | "HOME_HERO"
   | "EVENTS_HEADER"
+  | "INNOVATION_HEADER"
+  | "COMMUNITY_HEADER"
   | "RESOURCES_HEADER"
+  | "HOME_HERO"
   | "ASSOCIATION_HEADER";
 
 type Banner = {
@@ -62,15 +64,23 @@ const bannerPositions: Array<{
 }> = [
   {
     value: "EVENTS_HEADER",
-    label: "Cabecera de Eventos",
+    label: "Eventos",
+  },
+  {
+    value: "INNOVATION_HEADER",
+    label: "Innovación",
+  },
+  {
+    value: "COMMUNITY_HEADER",
+    label: "A la comunidad",
+  },
+  {
+    value: "RESOURCES_HEADER",
+    label: "Recursos",
   },
   {
     value: "HOME_HERO",
     label: "Banner principal del Home",
-  },
-  {
-    value: "RESOURCES_HEADER",
-    label: "Cabecera de Recursos",
   },
   {
     value: "ASSOCIATION_HEADER",

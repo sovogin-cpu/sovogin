@@ -42,6 +42,23 @@ export async function listMediaItems(
   return items;
 }
 
+export async function getSelectableMediaItemsByIds(
+  supabase: SupabaseClient,
+  ids: string[]
+): Promise<MediaItem[]> {
+  const cleanIds = ids.filter((id) => typeof id === "string" && id.trim().length > 0);
+  if (cleanIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("media_items")
+    .select("*, media_categories(id, name, slug)")
+    .in("id", cleanIds)
+    .eq("status", "active");
+
+  if (error) throw error;
+  return (data as MediaItem[]) || [];
+}
+
 export async function listMediaCategories(
   supabase: SupabaseClient
 ): Promise<MediaCategory[]> {
@@ -127,4 +144,23 @@ export async function createSignedMediaUrl(
   }
 
   return data.signedUrl;
+}
+
+export async function createSignedMediaUrls(
+  supabase: SupabaseClient,
+  items: MediaItem[],
+  expiresInSeconds = 3600
+): Promise<Record<string, string>> {
+  const urlMap: Record<string, string> = {};
+  for (const item of items) {
+    if (classifyMediaType(item.mime_type) === "image" && item.storage_path) {
+      try {
+        const signed = await createSignedMediaUrl(supabase, item.storage_path, expiresInSeconds);
+        urlMap[item.id] = signed;
+      } catch {
+        // Ignore single signed URL error
+      }
+    }
+  }
+  return urlMap;
 }

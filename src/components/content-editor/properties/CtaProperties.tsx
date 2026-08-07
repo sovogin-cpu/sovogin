@@ -5,6 +5,7 @@ import { CtaBlock } from "@/lib/content/types";
 import { BlockPropertiesProps } from "@/lib/content/editor-types";
 import { PropertySection } from "./PropertySection";
 import { PropertyField } from "./PropertyField";
+import { MediaSelectorField } from "@/components/media-selector/MediaSelectorField";
 
 export function CtaProperties({
   block,
@@ -31,6 +32,15 @@ export function CtaProperties({
           className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
         />
       </PropertyField>
+
+      <MediaSelectorField
+        value={block.mediaId || null}
+        onChange={(mediaId) => onChange({ ...block, mediaId: mediaId || undefined })}
+        kind="image"
+        visibilityRequirement="public"
+        label="Imagen Ilustrativa (Opcional)"
+        allowClear
+      />
 
       <PropertyField label="Texto del Botón" required>
         <input

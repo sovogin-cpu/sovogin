@@ -24,6 +24,13 @@ export interface BlockPropertiesProps<T extends ContentBlock = ContentBlock> {
   mode?: EditorMode;
 }
 
+export interface BlockDragState {
+  draggedBlockId: string | null;
+  sourceIndex: number | null;
+  targetIndex: number | null;
+  position: "before" | "after" | null;
+}
+
 export type EditorAction =
   | { type: "SELECT_BLOCK"; payload: { id: string | null } }
   | { type: "SET_EDITING_BLOCK"; payload: { id: string | null } }

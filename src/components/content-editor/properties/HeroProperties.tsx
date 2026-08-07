@@ -5,6 +5,7 @@ import { HeroBlock } from "@/lib/content/types";
 import { BlockPropertiesProps } from "@/lib/content/editor-types";
 import { PropertySection } from "./PropertySection";
 import { PropertyField } from "./PropertyField";
+import { MediaSelectorField } from "@/components/media-selector/MediaSelectorField";
 
 export function HeroProperties({
   block,
@@ -49,15 +50,15 @@ export function HeroProperties({
         </select>
       </PropertyField>
 
-      <PropertyField label="Fondo (mediaId)" description="ID de imagen de fondo opcional">
-        <input
-          type="text"
-          value={block.mediaId || ""}
-          onChange={(e) => onChange({ ...block, mediaId: e.target.value })}
-          placeholder="ID de imagen de fondo"
-          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-        />
-      </PropertyField>
+      <MediaSelectorField
+        value={block.mediaId || null}
+        onChange={(mediaId) => onChange({ ...block, mediaId: mediaId || undefined })}
+        kind="image"
+        visibilityRequirement="public"
+        label="Imagen de Fondo"
+        description="Imagen destacada para el encabezado principal"
+        allowClear
+      />
 
       <PropertyField label="Capa de Oscurecimiento (Overlay)">
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">

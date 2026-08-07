@@ -5,31 +5,22 @@ import { ImageBlock } from "@/lib/content/types";
 import { BlockPropertiesProps } from "@/lib/content/editor-types";
 import { PropertySection } from "./PropertySection";
 import { PropertyField } from "./PropertyField";
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { MediaSelectorField } from "@/components/media-selector/MediaSelectorField";
 
 export function ImageProperties({
   block,
   onChange,
 }: BlockPropertiesProps<ImageBlock>) {
-  const isUuidValid = UUID_REGEX.test(block.mediaId.trim());
-
   return (
     <PropertySection title="Propiedades de Imagen">
-      <PropertyField
-        label="ID Multimedia (mediaId)"
-        required
-        description="Identificador UUID único del archivo en Supabase Storage"
-        warning={!isUuidValid ? "Formato UUID de mediaId no es válido (ej: 123e4567-e89b-12d3-a456-426614174000)" : null}
-      >
-        <input
-          type="text"
-          value={block.mediaId}
-          onChange={(e) => onChange({ ...block, mediaId: e.target.value })}
-          placeholder="e.g. 123e4567-e89b-12d3-a456-426614174000"
-          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-        />
-      </PropertyField>
+      <MediaSelectorField
+        value={block.mediaId}
+        onChange={(mediaId) => onChange({ ...block, mediaId: mediaId || "" })}
+        kind="image"
+        visibilityRequirement="public"
+        label="Imagen desde la Biblioteca"
+        description="Selecciona una imagen publicada y activa"
+      />
 
       <PropertyField label="Leyenda (Caption)" description="Texto explicativo visible debajo de la imagen">
         <input

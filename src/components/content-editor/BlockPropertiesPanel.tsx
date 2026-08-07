@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { ContentBlock, ContentBlockType } from "@/lib/content/types";
 import { BlockPropertiesProps, EditorMode } from "@/lib/content/editor-types";
 import { formatContentBlockType } from "@/lib/content/content-utils";
-import { X, SlidersHorizontal } from "lucide-react";
+import { X, SlidersHorizontal, LayoutGrid, FileText } from "lucide-react";
 
 import { ParagraphProperties } from "./properties/ParagraphProperties";
 import { HeadingProperties } from "./properties/HeadingProperties";
@@ -21,6 +21,7 @@ import { MapProperties } from "./properties/MapProperties";
 import { SpacerProperties } from "./properties/SpacerProperties";
 import { DividerProperties } from "./properties/DividerProperties";
 import { QuoteProperties } from "./properties/QuoteProperties";
+import { BlockLayoutPanel } from "./BlockLayoutPanel";
 
 interface BlockPropertiesPanelProps {
   block: ContentBlock | null;
@@ -60,6 +61,8 @@ export function BlockPropertiesPanel({
   onClose,
   mode = "article",
 }: BlockPropertiesPanelProps) {
+  const [activeTab, setActiveTab] = useState<"content" | "layout">("content");
+
   if (!block) return null;
 
   const EditorComponent = PROPERTY_EDITORS[block.type];
@@ -67,38 +70,73 @@ export function BlockPropertiesPanel({
   return (
     <aside className="w-full lg:w-80 xl:w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col h-full shadow-lg shrink-0 overflow-hidden rounded-xl">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/80">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-            <SlidersHorizontal className="w-4 h-4" />
+      <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <SlidersHorizontal className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                {formatContentBlockType(block.type)}
+              </h3>
+              <span className="text-[10px] text-slate-400 font-mono">
+                ID: {block.id} (v{block.version})
+              </span>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">
-              {formatContentBlockType(block.type)}
-            </h3>
-            <span className="text-[10px] text-slate-400 font-mono">
-              ID: {block.id} (v{block.version})
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Cerrar panel"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title="Cerrar panel"
-        >
-          <X className="w-4 h-4" />
-        </button>
+
+        {/* Tabs: Contenido vs Diseño */}
+        <div className="grid grid-cols-2 p-1 bg-slate-200/60 dark:bg-slate-800 rounded-lg text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setActiveTab("content")}
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-all ${
+              activeTab === "content"
+                ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Contenido
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("layout")}
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-all ${
+              activeTab === "layout"
+                ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            Diseño
+          </button>
+        </div>
       </div>
 
       {/* Editor Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {EditorComponent ? (
-          <EditorComponent block={block} onChange={onChange} mode={mode} />
+        {activeTab === "content" ? (
+          EditorComponent ? (
+            <EditorComponent block={block} onChange={onChange} mode={mode} />
+          ) : (
+            <div className="text-xs text-red-500 p-3 bg-red-50 rounded-lg">
+              No hay editor configurado para este tipo de bloque.
+            </div>
+          )
         ) : (
-          <div className="text-xs text-red-500 p-3 bg-red-50 rounded-lg">
-            No hay editor configurado para este tipo de bloque.
-          </div>
+          <BlockLayoutPanel block={block} onChange={onChange} />
         )}
       </div>
     </aside>

@@ -1,3 +1,5 @@
+import { BlockLayoutConfig } from "./block-layout-types";
+
 export type ContentChannel = "innovation" | "community" | "news" | "benefits";
 export type ContentPostStatus = "draft" | "published" | "archived";
 export type ContentVisibility = "public" | "members_only";
@@ -27,50 +29,44 @@ export type ContentBlockType =
   | "divider"
   | "quote";
 
-export interface ParagraphBlock {
+export interface BaseBlock {
   id: string;
-  type: "paragraph";
   version: 1;
+  layout?: BlockLayoutConfig;
+}
+
+export interface ParagraphBlock extends BaseBlock {
+  type: "paragraph";
   text: string;
 }
 
-export interface HeadingBlock {
-  id: string;
+export interface HeadingBlock extends BaseBlock {
   type: "heading";
-  version: 1;
   text: string;
   level: 2 | 3;
 }
 
-export interface ImageBlock {
-  id: string;
+export interface ImageBlock extends BaseBlock {
   type: "image";
-  version: 1;
   mediaId: string;
   caption?: string;
   altText?: string;
 }
 
-export interface YoutubeBlock {
-  id: string;
+export interface YoutubeBlock extends BaseBlock {
   type: "youtube";
-  version: 1;
   url: string;
   caption?: string;
 }
 
-export interface AttachmentBlock {
-  id: string;
+export interface AttachmentBlock extends BaseBlock {
   type: "attachment";
-  version: 1;
   mediaId: string;
   label: string;
 }
 
-export interface HeroBlock {
-  id: string;
+export interface HeroBlock extends BaseBlock {
   type: "hero";
-  version: 1;
   title: string;
   subtitle?: string;
   mediaId?: string;
@@ -86,10 +82,8 @@ export interface HeroBlock {
   };
 }
 
-export interface ButtonBlock {
-  id: string;
+export interface ButtonBlock extends BaseBlock {
   type: "button";
-  version: 1;
   label: string;
   href: string;
   variant: "primary" | "secondary" | "outline";
@@ -97,19 +91,15 @@ export interface ButtonBlock {
   openInNewTab: boolean;
 }
 
-export interface GalleryBlock {
-  id: string;
+export interface GalleryBlock extends BaseBlock {
   type: "gallery";
-  version: 1;
   mediaIds: string[];
   columns: 2 | 3 | 4;
   caption?: string;
 }
 
-export interface CtaBlock {
-  id: string;
+export interface CtaBlock extends BaseBlock {
   type: "cta";
-  version: 1;
   title: string;
   text?: string;
   buttonLabel: string;
@@ -118,29 +108,23 @@ export interface CtaBlock {
   style: "light" | "dark" | "brand";
 }
 
-export interface SponsorsBlock {
-  id: string;
+export interface SponsorsBlock extends BaseBlock {
   type: "sponsors";
-  version: 1;
   title?: string;
   sponsorIds?: string[];
   showAllActive: boolean;
   displayStyle: "grid" | "carousel";
 }
 
-export interface FormBlock {
-  id: string;
+export interface FormBlock extends BaseBlock {
   type: "form";
-  version: 1;
   formKey: string;
   title?: string;
   description?: string;
 }
 
-export interface MapBlock {
-  id: string;
+export interface MapBlock extends BaseBlock {
   type: "map";
-  version: 1;
   title?: string;
   address: string;
   latitude?: number;
@@ -148,24 +132,18 @@ export interface MapBlock {
   zoom?: number;
 }
 
-export interface SpacerBlock {
-  id: string;
+export interface SpacerBlock extends BaseBlock {
   type: "spacer";
-  version: 1;
   size: "small" | "medium" | "large";
 }
 
-export interface DividerBlock {
-  id: string;
+export interface DividerBlock extends BaseBlock {
   type: "divider";
-  version: 1;
   style: "solid" | "dashed" | "subtle";
 }
 
-export interface QuoteBlock {
-  id: string;
+export interface QuoteBlock extends BaseBlock {
   type: "quote";
-  version: 1;
   text: string;
   author?: string;
   source?: string;

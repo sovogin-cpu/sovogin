@@ -16,6 +16,7 @@ import {
   SponsorsBlock,
   YoutubeBlock,
 } from "./types";
+import { normalizeBlockLayout } from "./block-layout-utils";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -303,16 +304,10 @@ function isValidYoutubeUrl(val: unknown): boolean {
   return typeof val === "string" && YOUTUBE_URL_REGEX.test(val.trim());
 }
 
-function parseSingleBlock(rawBlock: unknown): ContentBlock | null {
-  if (!isValidBlockObject(rawBlock)) return null;
-  if (!isNonEmptyString(rawBlock.id)) return null;
-
-  // Rule: version can be undefined (legacy compatibility) or exactly 1. Reject any other version.
-  if (rawBlock.version !== undefined && rawBlock.version !== 1) {
-    return null;
-  }
-
-  const id = rawBlock.id.trim();
+function parseRawBlockContent(
+  rawBlock: Record<string, unknown>,
+  id: string
+): ContentBlock | null {
   const type = rawBlock.type;
 
   switch (type) {
@@ -596,6 +591,30 @@ function parseSingleBlock(rawBlock: unknown): ContentBlock | null {
     default:
       return null;
   }
+}
+
+function parseSingleBlock(rawBlock: unknown): ContentBlock | null {
+  if (!isValidBlockObject(rawBlock)) return null;
+  if (!isNonEmptyString(rawBlock.id)) return null;
+
+  // Rule: version can be undefined (legacy compatibility) or exactly 1. Reject any other version.
+  if (rawBlock.version !== undefined && rawBlock.version !== 1) {
+    return null;
+  }
+
+  const id = rawBlock.id.trim();
+  const parsedBlock = parseRawBlockContent(rawBlock, id);
+  if (!parsedBlock) return null;
+
+  if (rawBlock.layout !== undefined) {
+    const normalizedLayout = normalizeBlockLayout(rawBlock.layout);
+    return {
+      ...parsedBlock,
+      layout: normalizedLayout,
+    };
+  }
+
+  return parsedBlock;
 }
 
 export function validateContentBlocks(value: unknown): boolean {

@@ -308,6 +308,15 @@ function DividerRenderer({ block }: PreviewBlockProps<DividerBlock>) {
 // RENDERER REGISTRY (PREVIEW ENFOCADO - NO GIANT SWITCH CASE)
 // -----------------------------------------------------------------------------
 
+import {
+  getBlockWidthClasses,
+  getBlockAlignmentClasses,
+  getBlockSpacingClasses,
+  getBlockColumnClasses,
+  getBlockGapClasses,
+  getBlockBackgroundClasses,
+} from "@/lib/content/block-layout-utils";
+
 const BLOCK_RENDERERS: Record<ContentBlockType, React.FC<BlockRendererProps>> = {
   paragraph: ParagraphRenderer as React.FC<BlockRendererProps>,
   heading: HeadingRenderer as React.FC<BlockRendererProps>,
@@ -337,5 +346,41 @@ export function BlockRenderer({ block }: BlockRendererProps) {
     );
   }
 
-  return <TargetComponent block={block} />;
+  const layout = block.layout;
+
+  if (!layout) {
+    return <TargetComponent block={block} />;
+  }
+
+  const widthClasses = getBlockWidthClasses(layout.width);
+  const alignmentClasses = getBlockAlignmentClasses(layout.alignment);
+  const spacingClasses = getBlockSpacingClasses(layout);
+  const columnClasses = getBlockColumnClasses(layout.columns, layout.responsive);
+  const gapClasses = getBlockGapClasses(layout.columnGap);
+  const bgClasses = getBlockBackgroundClasses(layout.background);
+
+  const isColorBg = layout.background.type === "color" && layout.background.color;
+  const isImageBg = layout.background.type === "image";
+
+  return (
+    <div
+      className={`transition-all ${widthClasses} ${spacingClasses} ${bgClasses}`}
+      style={isColorBg ? { backgroundColor: layout.background.color } : undefined}
+    >
+      {isImageBg && (
+        <div className="mb-2 p-2 bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[11px] text-indigo-700 dark:text-indigo-300 font-mono flex items-center justify-between">
+          <span>Fondo de imagen: {layout.background.mediaId || "Sin imagen"}</span>
+          {layout.background.overlay && (
+            <span className="text-[9px] bg-indigo-200 dark:bg-indigo-900 px-1.5 py-0.5 rounded">
+              Overlay activo
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className={`${columnClasses} ${gapClasses} ${alignmentClasses}`}>
+        <TargetComponent block={block} />
+      </div>
+    </div>
+  );
 }

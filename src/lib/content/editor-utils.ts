@@ -2,6 +2,27 @@ import { createBlockId, createEmptyAttachmentBlock, createEmptyButtonBlock, crea
 import { EditorBlockDescriptor } from "./editor-types";
 import { ContentBlock, ContentBlockType } from "./types";
 
+export function reorderBlocks(
+  blocks: ContentBlock[],
+  sourceIndex: number,
+  destinationIndex: number
+): ContentBlock[] {
+  if (sourceIndex === destinationIndex) return [...blocks];
+  if (
+    sourceIndex < 0 ||
+    sourceIndex >= blocks.length ||
+    destinationIndex < 0 ||
+    destinationIndex >= blocks.length
+  ) {
+    return blocks;
+  }
+
+  const result = [...blocks];
+  const [movedBlock] = result.splice(sourceIndex, 1);
+  result.splice(destinationIndex, 0, movedBlock);
+  return result;
+}
+
 export function duplicateBlock(
   blocks: ContentBlock[],
   blockId: string
