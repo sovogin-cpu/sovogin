@@ -1,238 +1,382 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Search, Loader2, Trash2, FileText, CheckCircle2, XCircle, Clock, CreditCard } from "lucide-react";
+import {
+  Loader2,
+  Trash2,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  UserPlus,
+  Edit2,
+  Ban,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { createClient } from "@/utils/supabase/client";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import * as XLSX from "xlsx";
 
-interface RegistrationEvent {
-  title: string;
-}
+import {
+  Registration,
+  RegistrationEventItem,
+  RegistrationFilterState,
+} from "@/lib/registrations/types";
+import {
+  formatCopCurrency,
+  formatRegistrationOriginLabel,
+  formatRegistrationPaymentStatusLabel,
+  formatRegistrationStatusLabel,
+  maskDocument,
+} from "@/lib/registrations/registration-utils";
+import {
+  cancelRegistration,
+  deleteRegistrationRecord,
+  listEventsForAdminRegistration,
+  listRegistrationsAdmin,
+} from "@/lib/registrations/registration-repository";
 
-interface Registration {
-  id: string;
-  full_name: string;
-  email: string;
-  customer_document_type?: string | null;
-  document_number?: string | null;
-  phone?: string | null;
-  amount?: number | null;
-  modality?: string | null;
-  category?: string | null;
-  status?: string | null;
-  payment_status?: string | null;
-  payment_reference?: string | null;
-  payment_id?: string | null;
-  origin?: string | null;
-  paid_at?: string | null;
-  created_at: string;
-  events?: RegistrationEvent | null;
-}
+import { RegistrationOriginBadge } from "@/components/registrations/RegistrationOriginBadge";
+import { RegistrationFilters } from "@/components/registrations/RegistrationFilters";
+import { RegistrationDialog } from "@/components/registrations/RegistrationDialog";
 
-function maskDocument(docType?: string | null, docNum?: string | null) {
-  if (!docNum) return "-";
-  const clean = docNum.trim();
-  if (clean.length <= 4) return `${docType ? docType + " - " : ""}${clean}`;
-  const masked = "*".repeat(Math.max(0, clean.length - 4)) + clean.slice(-4);
-  return `${docType ? docType + " - " : ""}${masked}`;
-}
+const DEFAULT_FILTERS: RegistrationFilterState = {
+  eventId: "all",
+  status: "all",
+  paymentStatus: "all",
+  origin: "all",
+  modality: "all",
+  searchQuery: "",
+};
 
 export default function RegistrationsAdmin() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [events, setEvents] = useState<RegistrationEventItem[]>([]);
+  const [filters, setFilters] = useState<RegistrationFilterState>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+
+  // Dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
+
   const supabase = useMemo(() => createClient(), []);
 
-  const fetchRegistrations = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('registrations')
-        .select('*, events(title)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setRegistrations((data as Registration[]) || []);
+      setLoading(true);
+      const [regsData, eventsData] = await Promise.all([
+        listRegistrationsAdmin(supabase, filters),
+        listEventsForAdminRegistration(supabase),
+      ]);
+      setRegistrations(regsData);
+      setEvents(eventsData);
     } catch (error: unknown) {
-      console.error("Error fetching registrations:", error instanceof Error ? error.message : error);
+      console.error("Error al cargar inscritos:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, filters]);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadInitialRegistrations() {
-      await fetchRegistrations();
-      if (!isMounted) return;
+    async function init() {
+      try {
+        setLoading(true);
+        const [regsData, eventsData] = await Promise.all([
+          listRegistrationsAdmin(supabase, filters),
+          listEventsForAdminRegistration(supabase),
+        ]);
+        if (isMounted) {
+          setRegistrations(regsData);
+          setEvents(eventsData);
+        }
+      } catch (error: unknown) {
+        console.error("Error al inicializar inscritos:", error);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     }
 
-    void loadInitialRegistrations();
+    void init();
 
     return () => {
       isMounted = false;
     };
-  }, [fetchRegistrations]);
+  }, [supabase, filters]);
 
-  async function deleteRegistration(id: string) {
-    if (!confirm("¿Eliminar esta inscripción?")) return;
+  const handleOpenCreateDialog = () => {
+    setEditingRegistration(null);
+    setDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = (reg: Registration) => {
+    setEditingRegistration(reg);
+    setDialogOpen(true);
+  };
+
+  const handleCancelRegistration = async (reg: Registration) => {
+    if (reg.status === "cancelled") return;
+    if (!confirm(`¿Deseas cancelar la inscripción de "${reg.full_name}"?`)) return;
+
     try {
-      const { error } = await supabase.from('registrations').delete().eq('id', id);
-      if (error) throw error;
-      void fetchRegistrations();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Error al eliminar la inscripción";
+      await cancelRegistration(supabase, reg.id);
+      void loadData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al cancelar inscripción";
       alert("Error: " + message);
     }
-  }
+  };
 
-  function exportToExcel() {
-    const dataToExport = registrations.map(r => ({
+  const handleDeleteRegistration = async (reg: Registration) => {
+    if (!confirm(`¿Eliminar permanentemente la inscripción de "${reg.full_name}"?`)) return;
+
+    try {
+      await deleteRegistrationRecord(supabase, reg.id);
+      void loadData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al eliminar la inscripción";
+      alert("Error: " + message);
+    }
+  };
+
+  const exportToExcel = () => {
+    const dataToExport = registrations.map((r) => ({
       Participante: r.full_name,
       Email: r.email,
       Documento: maskDocument(r.customer_document_type, r.document_number),
-      Telefono: r.phone,
-      Evento: r.events?.title,
-      Monto: r.amount,
-      Modalidad: r.modality,
-      Categoria: r.category,
-      EstadoInscripcion: r.status,
-      EstadoPago: r.payment_status || r.status,
+      Telefono: r.phone || "-",
+      Evento: r.events?.title || "Evento General",
+      Monto: r.amount || 0,
+      Modalidad: r.modality || "presencial",
+      Categoria: r.category || "-",
+      EstadoInscripcion: formatRegistrationStatusLabel(r.status),
+      EstadoPago: formatRegistrationPaymentStatusLabel(r.payment_status),
       Referencia: r.payment_reference || r.payment_id || "-",
-      Origen: r.origin || "Manual",
-      Fecha: new Date(r.paid_at || r.created_at).toLocaleString()
+      Origen: formatRegistrationOriginLabel(r.origin),
+      Fecha: new Date(r.paid_at || r.created_at).toLocaleString(),
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inscritos");
     XLSX.writeFile(workbook, "Inscritos_Eventos_SOVOGIN.xlsx");
-  }
-
-  const filtered = registrations.filter(r => 
-    r.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.events?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.payment_reference?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  };
 
   return (
     <div className="space-y-8">
+      {/* Top Bar Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 font-heading">Gestión de Inscritos</h1>
-          <p className="text-slate-500">Personas registradas en los simposios y eventos.</p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-heading">
+            Gestión de Inscritos
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400">
+            Administra inscripciones automáticas (Openpay) y registros manuales (Invitados, Cortesías, Ponentes, Patrocinadores).
+          </p>
         </div>
-        
-        <Button onClick={exportToExcel} variant="outline" className="h-12 px-6 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 gap-2 font-bold shadow-sm">
-          <FileText className="w-5 h-5" />
-          Exportar Excel
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={exportToExcel}
+            variant="outline"
+            className="h-12 px-5 rounded-2xl border-slate-200 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 gap-2 font-bold shadow-sm"
+          >
+            <FileText className="w-4 h-4" />
+            Exportar Excel
+          </Button>
+
+          <Button
+            onClick={handleOpenCreateDialog}
+            className="h-12 px-6 rounded-2xl bg-[#006666] hover:bg-[#004d4d] text-white font-bold gap-2 shadow-lg shadow-emerald-900/10"
+          >
+            <UserPlus className="w-5 h-5" />
+            <span>Nuevo Inscrito</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-          <Input 
-            placeholder="Buscar por nombre, email, evento o referencia..." 
-            className="pl-12 h-14 rounded-2xl bg-white border-slate-100 shadow-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
+      {/* Advanced Filters */}
+      <RegistrationFilters
+        filters={filters}
+        events={events}
+        onChange={setFilters}
+        onReset={() => setFilters(DEFAULT_FILTERS)}
+      />
 
-      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+      {/* Registrations Table */}
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="py-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary" /></div>
+          <div className="py-20 flex justify-center">
+            <Loader2 className="w-10 h-10 animate-spin text-[#006666]" />
+          </div>
         ) : (
           <Table>
-            <TableHeader className="bg-slate-50/50">
-              <TableRow className="border-slate-100 h-16">
-                <TableHead className="pl-8 text-slate-900 font-bold">Participante</TableHead>
-                <TableHead className="text-slate-900 font-bold">Evento</TableHead>
-                <TableHead className="text-slate-900 font-bold">Modalidad / Origen</TableHead>
-                <TableHead className="text-slate-900 font-bold">Monto / Referencia</TableHead>
-                <TableHead className="text-slate-900 font-bold">Estado</TableHead>
-                <TableHead className="text-right pr-8 text-slate-900 font-bold">Acciones</TableHead>
+            <TableHeader className="bg-slate-50/50 dark:bg-slate-800/40">
+              <TableRow className="border-slate-100 dark:border-slate-800 h-16">
+                <TableHead className="pl-8 text-slate-900 dark:text-white font-bold">
+                  Participante
+                </TableHead>
+                <TableHead className="text-slate-900 dark:text-white font-bold">
+                  Evento
+                </TableHead>
+                <TableHead className="text-slate-900 dark:text-white font-bold">
+                  Origen / Modalidad
+                </TableHead>
+                <TableHead className="text-slate-900 dark:text-white font-bold">
+                  Monto / Referencia
+                </TableHead>
+                <TableHead className="text-slate-900 dark:text-white font-bold">
+                  Estado
+                </TableHead>
+                <TableHead className="text-right pr-8 text-slate-900 dark:text-white font-bold">
+                  Acciones
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length > 0 ? filtered.map((r) => (
-                <TableRow key={r.id} className="border-slate-50 hover:bg-slate-50/50 transition-colors h-20">
-                  <TableCell className="pl-8">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-900">{r.full_name}</span>
-                      <span className="text-xs text-slate-500">{r.email}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        Doc: {maskDocument(r.customer_document_type, r.document_number)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-medium text-slate-700">{r.events?.title || "Evento General"}</span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs px-2.5 py-0.5 bg-slate-100 rounded-full w-fit capitalize font-medium">{r.modality || "presencial"}</span>
-                      {r.origin === "openpay" ? (
-                        <span className="text-[10px] font-bold text-primary flex items-center gap-1">
-                          <CreditCard className="w-3 h-3" /> Openpay
+              {registrations.length > 0 ? (
+                registrations.map((r) => (
+                  <TableRow
+                    key={r.id}
+                    className="border-slate-50 dark:border-slate-800/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors h-20"
+                  >
+                    <TableCell className="pl-8">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-900 dark:text-white text-sm">
+                          {r.full_name}
                         </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">Manual</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-900">${new Intl.NumberFormat('es-CO').format(r.amount || 0)} COP</span>
-                      {r.payment_reference && (
-                        <span className="text-[10px] font-mono text-slate-400">{r.payment_reference}</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {r.status === 'confirmed' || r.payment_status === 'paid' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      ) : r.status === 'pending' ? (
-                        <Clock className="w-4 h-4 text-amber-500" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      )}
-                      <span className={`text-[10px] font-bold uppercase ${
-                        r.status === 'confirmed' || r.payment_status === 'paid' ? 'text-emerald-700' : 
-                        r.status === 'pending' ? 'text-amber-700' : 'text-red-700'
-                      }`}>
-                        {r.status === 'confirmed' || r.payment_status === 'paid' ? 'Confirmado' : r.status === 'pending' ? 'Pendiente' : 'Cancelado'}
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {r.email}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Doc: {maskDocument(r.customer_document_type, r.document_number)}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="font-medium text-slate-700 dark:text-slate-300 text-xs">
+                        {r.events?.title || "Evento General"}
                       </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right pr-8">
-                    <Button variant="ghost" size="icon" onClick={() => deleteRegistration(r.id)} className="h-10 w-10 rounded-xl text-slate-400 hover:text-red-500">
-                      <Trash2 className="w-5 h-5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              )) : (
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex flex-col gap-1.5 items-start">
+                        <RegistrationOriginBadge origin={r.origin} />
+                        <span className="text-[10px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md capitalize font-medium">
+                          {r.modality || "presencial"}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-900 dark:text-white text-xs">
+                          {formatCopCurrency(r.amount)}
+                        </span>
+                        {r.payment_reference && (
+                          <span className="text-[10px] font-mono text-slate-400">
+                            Ref: {r.payment_reference}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          Pago: {formatRegistrationPaymentStatusLabel(r.payment_status)}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {r.status === "confirmed" ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        ) : r.status === "pending" ? (
+                          <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                        )}
+                        <span
+                          className={`text-[10px] font-bold uppercase ${
+                            r.status === "confirmed"
+                              ? "text-emerald-700 dark:text-emerald-400"
+                              : r.status === "pending"
+                              ? "text-amber-700 dark:text-amber-400"
+                              : "text-red-700 dark:text-red-400"
+                          }`}
+                        >
+                          {formatRegistrationStatusLabel(r.status)}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="text-right pr-8">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Editar inscripción"
+                          onClick={() => handleOpenEditDialog(r)}
+                          className="h-9 w-9 rounded-xl text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+
+                        {r.status !== "cancelled" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Cancelar inscripción"
+                            onClick={() => handleCancelRegistration(r)}
+                            className="h-9 w-9 rounded-xl text-slate-400 hover:text-amber-600"
+                          >
+                            <Ban className="w-4 h-4" />
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Eliminar inscripción"
+                          onClick={() => handleDeleteRegistration(r)}
+                          className="h-9 w-9 rounded-xl text-slate-400 hover:text-red-500"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-20 text-slate-400">No se encontraron inscritos.</TableCell>
+                  <TableCell
+                    colSpan={6}
+                    className="text-center py-20 text-slate-400 dark:text-slate-500 text-sm"
+                  >
+                    No se encontraron inscritos con los filtros seleccionados.
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         )}
       </div>
+
+      {/* Creation / Editing Dialog */}
+      <RegistrationDialog
+        key={editingRegistration ? editingRegistration.id : dialogOpen ? "dialog-new" : "dialog-closed"}
+        isOpen={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onSaved={loadData}
+        registrationToEdit={editingRegistration}
+        events={events}
+      />
     </div>
   );
 }
