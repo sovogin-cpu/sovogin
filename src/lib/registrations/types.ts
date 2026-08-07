@@ -11,6 +11,8 @@ export type RegistrationStatus = "pending" | "confirmed" | "cancelled";
 
 export type RegistrationPaymentStatus = "pending" | "paid" | "not_required";
 
+export type RegistrationCheckInMethod = "manual" | "document" | "qr";
+
 export interface RegistrationEventItem {
   id: string;
   title: string;
@@ -39,6 +41,9 @@ export interface Registration {
   origin?: RegistrationOrigin | string | null;
   created_at: string;
   events?: RegistrationEventItem | null;
+  checked_in_at?: string | null;
+  checked_in_by?: string | null;
+  check_in_method?: RegistrationCheckInMethod | string | null;
 }
 
 export interface CreateManualRegistrationDTO {
@@ -75,5 +80,23 @@ export interface RegistrationFilterState {
   paymentStatus: string;
   origin: string;
   modality: string;
+  category: string;
+  checkInStatus: string;
   searchQuery: string;
+}
+
+export interface RegistrationStatsData {
+  total: number;
+  confirmed: number;
+  pending: number;
+  cancelled: number;
+  paid: number;
+  notRequired: number;
+  totalRevenue: number;
+  checkedIn: number;
+  notCheckedIn: number;
+  attendancePercentage: number;
+  byModality: Record<string, number>;
+  byCategory: Record<string, number>;
+  byOrigin: Record<string, number>;
 }

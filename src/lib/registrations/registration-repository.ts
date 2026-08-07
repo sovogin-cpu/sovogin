@@ -36,6 +36,18 @@ export async function listRegistrationsAdmin(
     query = query.eq("modality", filters.modality);
   }
 
+  if (filters?.category && filters.category !== "all") {
+    query = query.eq("category", filters.category);
+  }
+
+  if (filters?.checkInStatus && filters.checkInStatus !== "all") {
+    if (filters.checkInStatus === "checked_in") {
+      query = query.not("checked_in_at", "is", null);
+    } else if (filters.checkInStatus === "not_checked_in") {
+      query = query.is("checked_in_at", null);
+    }
+  }
+
   const { data, error } = await query;
   if (error) {
     console.error("Error al listar inscripciones administrativas:", error);
@@ -195,4 +207,74 @@ export async function deleteRegistrationRecord(
     console.error("Error al eliminar registro de inscripción:", error);
     throw error;
   }
+}
+
+export async function checkInRegistration(
+  supabase: SupabaseClient,
+  registrationId: string
+): Promise<Registration> {
+  // Idempotency check: fetch registration first
+  const { data: existing, error: fetchError } = await supabase
+    .from("registrations")
+    .select("*, events(id, title)")
+    .eq("id", registrationId)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new Error("No se encontró la inscripción para registrar el ingreso.");
+  }
+
+  if (existing.status !== "confirmed") {
+    throw new Error("La inscripción debe estar confirmada antes de registrar el ingreso.");
+  }
+
+  // Idempotent return if already checked in
+  if (existing.checked_in_at) {
+    return existing as Registration;
+  }
+
+  // Get authenticated user
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData?.user?.id || null;
+
+  const { data: updated, error: updateError } = await supabase
+    .from("registrations")
+    .update({
+      checked_in_at: new Date().toISOString(),
+      checked_in_by: userId,
+      check_in_method: "manual",
+    })
+    .eq("id", registrationId)
+    .select("*, events(id, title)")
+    .single();
+
+  if (updateError) {
+    console.error("Error al registrar check-in:", updateError);
+    throw updateError;
+  }
+
+  return updated as Registration;
+}
+
+export async function undoRegistrationCheckIn(
+  supabase: SupabaseClient,
+  registrationId: string
+): Promise<Registration> {
+  const { data, error } = await supabase
+    .from("registrations")
+    .update({
+      checked_in_at: null,
+      checked_in_by: null,
+      check_in_method: null,
+    })
+    .eq("id", registrationId)
+    .select("*, events(id, title)")
+    .single();
+
+  if (error) {
+    console.error("Error al deshacer check-in:", error);
+    throw error;
+  }
+
+  return data as Registration;
 }

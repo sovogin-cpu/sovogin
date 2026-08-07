@@ -9,6 +9,7 @@ import { RegistrationEventItem, RegistrationFilterState } from "@/lib/registrati
 interface RegistrationFiltersProps {
   filters: RegistrationFilterState;
   events: RegistrationEventItem[];
+  availableCategories: string[];
   onChange: (filters: RegistrationFilterState) => void;
   onReset: () => void;
 }
@@ -16,6 +17,7 @@ interface RegistrationFiltersProps {
 export function RegistrationFilters({
   filters,
   events,
+  availableCategories,
   onChange,
   onReset,
 }: RegistrationFiltersProps) {
@@ -25,6 +27,8 @@ export function RegistrationFilters({
     filters.paymentStatus !== "all" ||
     filters.origin !== "all" ||
     filters.modality !== "all" ||
+    filters.category !== "all" ||
+    filters.checkInStatus !== "all" ||
     filters.searchQuery.trim() !== "";
 
   return (
@@ -53,7 +57,7 @@ export function RegistrationFilters({
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
         {/* Event Select */}
         <div className="space-y-1">
           <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pl-1">
@@ -124,6 +128,41 @@ export function RegistrationFilters({
             <option value="paid">Pagado</option>
             <option value="pending">Pendiente</option>
             <option value="not_required">No requiere pago</option>
+          </select>
+        </div>
+
+        {/* Category Select */}
+        <div className="space-y-1">
+          <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pl-1">
+            Categoría
+          </label>
+          <select
+            className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={filters.category}
+            onChange={(e) => onChange({ ...filters, category: e.target.value })}
+          >
+            <option value="all">Todas las Categorías</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Check-in Status Select */}
+        <div className="space-y-1">
+          <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pl-1">
+            Check-in
+          </label>
+          <select
+            className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={filters.checkInStatus}
+            onChange={(e) => onChange({ ...filters, checkInStatus: e.target.value })}
+          >
+            <option value="all">Todos</option>
+            <option value="checked_in">Ingresaron</option>
+            <option value="not_checked_in">No ingresaron</option>
           </select>
         </div>
       </div>
