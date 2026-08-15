@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
 import {
   Loader2,
   Trash2,
@@ -8,9 +9,11 @@ import {
   Edit2,
   Ban,
   Eye,
+  QrCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
+import { RegistrationQrModal } from "@/components/registrations/RegistrationQrModal";
 import {
   Table,
   TableBody,
@@ -72,6 +75,14 @@ export default function RegistrationsAdmin() {
 
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedDetailRegistration, setSelectedDetailRegistration] = useState<Registration | null>(null);
+
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [selectedQrRegistration, setSelectedQrRegistration] = useState<Registration | null>(null);
+
+  const handleOpenQrModal = (reg: Registration) => {
+    setSelectedQrRegistration(reg);
+    setQrModalOpen(true);
+  };
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -195,6 +206,15 @@ export default function RegistrationsAdmin() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <Link href="/admin/check-in">
+            <Button
+              className="h-12 px-6 rounded-2xl bg-sky-700 hover:bg-sky-800 text-white font-bold gap-2 shadow-lg shadow-sky-950/10"
+            >
+              <QrCode className="w-5 h-5" />
+              <span>Escanear QR</span>
+            </Button>
+          </Link>
+
           <RegistrationExportButton
             registrations={registrations}
             selectedEventTitle={selectedEventTitle}
@@ -324,6 +344,16 @@ export default function RegistrationsAdmin() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          title="Credencial QR"
+                          onClick={() => handleOpenQrModal(r)}
+                          className="h-9 w-9 rounded-xl text-slate-400 hover:text-sky-600 dark:hover:text-sky-400"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           title="Ver detalle completo"
                           onClick={() => handleOpenDetailDialog(r)}
                           className="h-9 w-9 rounded-xl text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
@@ -397,6 +427,15 @@ export default function RegistrationsAdmin() {
         isOpen={detailDialogOpen}
         onClose={() => setDetailDialogOpen(false)}
         registration={selectedDetailRegistration}
+        onOpenQrModal={handleOpenQrModal}
+      />
+
+      {/* QR Credential Modal */}
+      <RegistrationQrModal
+        key={selectedQrRegistration ? `qr-${selectedQrRegistration.id}` : "qr-closed"}
+        isOpen={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        registration={selectedQrRegistration}
       />
     </div>
   );

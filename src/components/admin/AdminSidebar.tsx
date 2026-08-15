@@ -16,7 +16,8 @@ import {
   CheckCircle2,
   FolderKanban,
   Newspaper,
-  FolderTree
+  FolderTree,
+  Receipt
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -25,6 +26,7 @@ const menuItems = [
   { name: "Resumen", href: "/admin", icon: LayoutDashboard },
   { name: "Eventos", href: "/admin/eventos", icon: Calendar },
   { name: "Inscritos", href: "/admin/inscritos", icon: CheckCircle2 },
+  { name: "Pagos & Conciliación", href: "/admin/pagos", icon: Receipt },
   { name: "Transmisiones", href: "/admin/eventos/live", icon: ImageIcon },
   { name: "Biblioteca Multimedia", href: "/admin/media", icon: FolderKanban },
   { name: "Contenidos", href: "/admin/contenidos", icon: Newspaper },

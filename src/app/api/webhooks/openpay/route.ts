@@ -137,6 +137,8 @@ export async function POST(request: NextRequest) {
       customer_phone,
       customer_document_type,
       customer_document_number,
+      category,
+      modality,
       amount,
       currency,
       status,
@@ -306,6 +308,16 @@ export async function POST(request: NextRequest) {
         // Crear automáticamente la inscripción en public.registrations
         const fullCustomerName = `${order.customer_name || ""} ${order.customer_last_name || ""}`.trim() || "Asistente";
 
+        const orderObj = order as Record<string, unknown>;
+        const finalCategory =
+          typeof orderObj.category === "string" && orderObj.category.trim()
+            ? orderObj.category.trim()
+            : "Participante Openpay";
+        const finalModality =
+          typeof orderObj.modality === "string" && orderObj.modality.trim()
+            ? orderObj.modality.trim()
+            : "presencial";
+
         const registrationPayload = {
           payment_order_id: order.id,
           payment_reference: order.reference,
@@ -316,8 +328,8 @@ export async function POST(request: NextRequest) {
           customer_document_type: order.customer_document_type || "CC",
           document_number: order.customer_document_number || "",
           amount: Number(order.amount),
-          modality: "presencial",
-          category: "Participante Openpay",
+          modality: finalModality,
+          category: finalCategory,
           status: "confirmed",
           payment_status: "paid",
           payment_id: transaction.id || order.openpay_transaction_id || null,

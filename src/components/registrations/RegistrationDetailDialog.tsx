@@ -20,18 +20,20 @@ import { RegistrationStatusBadge } from "./RegistrationStatusBadge";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 import { RegistrationOriginBadge } from "./RegistrationOriginBadge";
 import { RegistrationCheckInBadge } from "./RegistrationCheckInBadge";
-import { User, Calendar, CreditCard, ShieldCheck, UserCheck } from "lucide-react";
+import { User, Calendar, CreditCard, ShieldCheck, UserCheck, QrCode } from "lucide-react";
 
 interface RegistrationDetailDialogProps {
   isOpen: boolean;
   onClose: () => void;
   registration: Registration | null;
+  onOpenQrModal?: (registration: Registration) => void;
 }
 
 export function RegistrationDetailDialog({
   isOpen,
   onClose,
   registration,
+  onOpenQrModal,
 }: RegistrationDetailDialogProps) {
   if (!registration) return null;
 
@@ -251,7 +253,15 @@ export function RegistrationDetailDialog({
           )}
         </div>
 
-        <DialogFooter className="pt-2">
+        <DialogFooter className="pt-2 flex flex-col sm:flex-row gap-2">
+          <Button
+            type="button"
+            onClick={() => onOpenQrModal && onOpenQrModal(registration)}
+            variant="outline"
+            className="w-full sm:w-auto h-11 px-5 rounded-2xl border-sky-300 text-sky-700 hover:bg-sky-50 font-bold flex items-center justify-center gap-2"
+          >
+            <QrCode className="w-4 h-4 text-sky-600" /> Credencial QR
+          </Button>
           <Button
             type="button"
             onClick={onClose}
@@ -264,3 +274,4 @@ export function RegistrationDetailDialog({
     </Dialog>
   );
 }
+
