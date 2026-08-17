@@ -40,7 +40,14 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/admin/recuperar-password') ||
     request.nextUrl.pathname.startsWith('/admin/actualizar-password')
 
-  // Protected routes check
+  const isPublicPortalRoute = 
+    request.nextUrl.pathname.startsWith('/portal/login') ||
+    request.nextUrl.pathname.startsWith('/portal/recuperar-password') ||
+    request.nextUrl.pathname.startsWith('/portal/actualizar-password') ||
+    request.nextUrl.pathname.startsWith('/portal/no-autorizado') ||
+    request.nextUrl.pathname.startsWith('/portal/membresia-inactiva')
+
+  // Protected Admin routes check
   if (request.nextUrl.pathname.startsWith('/admin') && !isPublicAdminRoute) {
     if (!user) {
       const url = request.nextUrl.clone()
@@ -49,7 +56,16 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Redirect authenticated users away from login page
+  // Protected Portal routes check
+  if (request.nextUrl.pathname.startsWith('/portal') && !isPublicPortalRoute) {
+    if (!user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/portal/login'
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // Redirect authenticated users away from admin login page
   if (request.nextUrl.pathname === '/admin/login' && user) {
     const url = request.nextUrl.clone()
     url.pathname = '/admin'

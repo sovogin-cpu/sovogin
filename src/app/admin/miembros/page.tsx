@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { Search, Plus, Loader2, Edit2, Trash2, FileText, UserCheck } from "lucide-react";
+import { Search, Plus, Loader2, Edit2, Trash2, FileText, UserCheck, Mail, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/utils/supabase/client";
@@ -29,6 +29,7 @@ import { AssociateDirectoryProfileSummary } from "@/lib/directory/types";
 
 interface Associate {
   id: string;
+  user_id?: string | null;
   full_name: string;
   email: string;
   document_number?: string | null;
@@ -70,7 +71,31 @@ export default function MembersAdmin() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [invitingId, setInvitingId] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
+
+  const handleInviteAssociate = async (associate: Associate) => {
+    try {
+      setInvitingId(associate.id);
+      const res = await fetch(`/api/admin/associates/${associate.id}/invite`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert(data.error || "No se pudo enviar la invitación al portal.");
+        return;
+      }
+
+      alert(data.message || "Invitación enviada exitosamente.");
+      void fetchAssociates();
+    } catch (err: unknown) {
+      console.error("Error al invitar asociado:", err);
+      alert("Error al conectar con el servidor.");
+    } finally {
+      setInvitingId(null);
+    }
+  };
 
   const [formData, setFormData] = useState<AssociateFormData>({
     full_name: "",
@@ -515,6 +540,37 @@ export default function MembersAdmin() {
                     </TableCell>
                     <TableCell className="text-right pr-8">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Quick Action for Portal Invitation */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleInviteAssociate(associate)}
+                          disabled={invitingId === associate.id || associate.status !== "Activo"}
+                          className={`h-8 px-2.5 rounded-lg text-xs font-semibold gap-1.5 transition-colors ${
+                            associate.status !== "Activo"
+                              ? "text-slate-400 bg-slate-100 cursor-not-allowed opacity-65"
+                              : associate.user_id
+                              ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                              : "text-[#006666] bg-[#006666]/10 hover:bg-[#006666]/20"
+                          }`}
+                          title={
+                            associate.status !== "Activo"
+                              ? "Membresía inactiva - Se requiere estar Activo para enviar invitación al Portal"
+                              : associate.user_id
+                              ? "Re-enviar acceso al Portal del Asociado"
+                              : "Invitar al Portal del Asociado"
+                          }
+                        >
+                          {invitingId === associate.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : associate.user_id ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          ) : (
+                            <Mail className="w-3.5 h-3.5" />
+                          )}
+                          <span>{associate.user_id ? "Portal Activo" : "Invitar"}</span>
+                        </Button>
+
                         {/* Quick Action for Directory */}
                         <Link
                           href={

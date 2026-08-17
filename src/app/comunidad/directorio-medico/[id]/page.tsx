@@ -1,6 +1,6 @@
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/utils/supabase/server";
 import { getPublishedDoctorById } from "@/lib/directory/directory-repository";
 import { DoctorProfilePage } from "@/components/directory/DoctorProfilePage";
 
@@ -10,7 +10,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const supabase = createClient();
+  const supabase = await createClient();
   const doctor = await getPublishedDoctorById(supabase, id);
 
   if (!doctor) {
@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function DoctorProfileDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const supabase = createClient();
+  const supabase = await createClient();
   const doctor = await getPublishedDoctorById(supabase, id);
 
   if (!doctor) {
