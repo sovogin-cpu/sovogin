@@ -30,13 +30,11 @@ const portalMenuItems = [
     name: "Beneficios Exclusivos",
     href: "/portal/beneficios",
     icon: Award,
-    upcoming: true,
   },
   {
     name: "Biblioteca & Recursos",
     href: "/portal/recursos",
     icon: BookOpen,
-    upcoming: true,
   },
   {
     name: "Certificados & Constancias",

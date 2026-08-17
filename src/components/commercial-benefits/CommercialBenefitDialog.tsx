@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X, Tag, CheckCircle2, Star } from "lucide-react";
 import {
+  AdminCommercialBenefit,
   CommercialBenefit,
   CommercialBenefitFormData,
 } from "@/lib/commercial-benefits/types";
@@ -12,7 +13,7 @@ interface CommercialBenefitDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (payload: CommercialBenefitFormData) => Promise<void>;
-  benefitToEdit?: CommercialBenefit | null;
+  benefitToEdit?: AdminCommercialBenefit | null;
 }
 
 export const CommercialBenefitDialog: React.FC<CommercialBenefitDialogProps> = ({
@@ -35,7 +36,7 @@ export const CommercialBenefitDialog: React.FC<CommercialBenefitDialogProps> = (
 interface CommercialBenefitDialogFormProps {
   onClose: () => void;
   onSave: (payload: CommercialBenefitFormData) => Promise<void>;
-  benefitToEdit?: CommercialBenefit | null;
+  benefitToEdit?: AdminCommercialBenefit | null;
 }
 
 const CommercialBenefitDialogForm: React.FC<CommercialBenefitDialogFormProps> = ({
@@ -74,6 +75,14 @@ const CommercialBenefitDialogForm: React.FC<CommercialBenefitDialogFormProps> = 
   );
   const [isFeatured, setIsFeatured] = useState<boolean>(
     benefitToEdit?.is_featured ?? false
+  );
+
+  const [discountCode, setDiscountCode] = useState(benefitToEdit?.discount_code || "");
+  const [redemptionInstructions, setRedemptionInstructions] = useState(
+    benefitToEdit?.redemption_instructions || ""
+  );
+  const [exclusiveLinkUrl, setExclusiveLinkUrl] = useState(
+    benefitToEdit?.exclusive_link_url || ""
   );
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -120,6 +129,9 @@ const CommercialBenefitDialogForm: React.FC<CommercialBenefitDialogFormProps> = 
         logo_media_id: logoMediaId,
         promotional_media_id: promotionalMediaId,
         link_url: linkUrl.trim() || null,
+        discount_code: discountCode.trim() || null,
+        redemption_instructions: redemptionInstructions.trim() || null,
+        exclusive_link_url: exclusiveLinkUrl.trim() || null,
         starts_at: startsAt ? new Date(startsAt).toISOString() : null,
         ends_at: endsAt ? new Date(endsAt).toISOString() : null,
         display_order: displayOrder >= 0 ? displayOrder : 0,
@@ -245,10 +257,61 @@ const CommercialBenefitDialogForm: React.FC<CommercialBenefitDialogFormProps> = 
             />
           </div>
 
-          {/* Link URL */}
+          {/* SECCIÓN DATOS EXCLUSIVOS PARA ASOCIADOS (PORTAL FASE 3A) */}
+          <div className="p-4 bg-emerald-50/50 border border-emerald-200/80 rounded-2xl space-y-3">
+            <div className="flex items-center gap-2">
+              <Star className="w-4 h-4 text-[#006666]" />
+              <span className="text-xs font-bold text-[#006666] uppercase tracking-wider">
+                Datos Exclusivos para Asociados (Portal del Asociado)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Código de Descuento / Cupón (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={discountCode}
+                  onChange={(e) => setDiscountCode(e.target.value)}
+                  placeholder="Ej. SOVOGIN2026"
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-mono uppercase font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Enlace Directo Exclusivo (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={exclusiveLinkUrl}
+                  onChange={(e) => setExclusiveLinkUrl(e.target.value)}
+                  placeholder="https://aliado.com/landing-privada-sovogin"
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                Instrucciones de Redención para Asociados (Opcional)
+              </label>
+              <textarea
+                value={redemptionInstructions}
+                onChange={(e) => setRedemptionInstructions(e.target.value)}
+                rows={2}
+                placeholder="Ej. Presentar carné gremial en recepción o ingresar el código al momento de reservar..."
+                className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl"
+              />
+            </div>
+          </div>
+
+          {/* Link URL Público */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Enlace Web / URL del Convenio
+              Enlace Web Público / URL del Aliado
             </label>
             <input
               type="text"

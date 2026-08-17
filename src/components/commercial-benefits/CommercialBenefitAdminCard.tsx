@@ -11,7 +11,7 @@ import {
   Calendar,
   Image as ImageIcon,
 } from "lucide-react";
-import { CommercialBenefit } from "@/lib/commercial-benefits/types";
+import { AdminCommercialBenefit, CommercialBenefit } from "@/lib/commercial-benefits/types";
 import {
   formatCommercialBenefitValidity,
   getCommercialBenefitValidityStatus,
@@ -20,10 +20,10 @@ import { createClient } from "@/utils/supabase/client";
 import { createCommercialBenefitSignedUrl } from "@/lib/commercial-benefits/commercial-benefits-repository";
 
 interface CommercialBenefitAdminCardProps {
-  benefit: CommercialBenefit;
-  onEdit: (benefit: CommercialBenefit) => void;
-  onToggleActive: (benefit: CommercialBenefit) => Promise<void>;
-  onToggleFeatured: (benefit: CommercialBenefit) => Promise<void>;
+  benefit: AdminCommercialBenefit;
+  onEdit: (benefit: AdminCommercialBenefit) => void;
+  onToggleActive: (benefit: AdminCommercialBenefit) => Promise<void>;
+  onToggleFeatured: (benefit: AdminCommercialBenefit) => Promise<void>;
 }
 
 export const CommercialBenefitAdminCard: React.FC<CommercialBenefitAdminCardProps> = ({
@@ -41,24 +41,12 @@ export const CommercialBenefitAdminCard: React.FC<CommercialBenefitAdminCardProp
 
     if (benefit.logo_media_id) {
       const supabase = createClient();
-      supabase
-        .from("media_items")
-        .select("storage_path")
-        .eq("id", benefit.logo_media_id)
-        .maybeSingle()
-        .then(async ({ data }) => {
-          if (data?.storage_path && isMounted) {
-            try {
-              const url = await createCommercialBenefitSignedUrl(
-                supabase,
-                data.storage_path,
-                3600
-              );
-              if (isMounted) setLogoSignedUrl(url);
-            } catch {
-              // Ignore preview error
-            }
-          }
+      createCommercialBenefitSignedUrl(supabase, benefit.logo_media_id)
+        .then((url) => {
+          if (isMounted) setLogoSignedUrl(url);
+        })
+        .catch(() => {
+          // Ignore preview error
         });
     }
 

@@ -11,6 +11,7 @@ import {
   updateCommercialBenefit,
 } from "@/lib/commercial-benefits/commercial-benefits-repository";
 import {
+  AdminCommercialBenefit,
   CommercialBenefit,
   CommercialBenefitFilters,
   CommercialBenefitFormData,
@@ -19,7 +20,7 @@ import { CommercialBenefitAdminCard } from "./CommercialBenefitAdminCard";
 import { CommercialBenefitDialog } from "./CommercialBenefitDialog";
 
 export const CommercialBenefitsAdminPage: React.FC = () => {
-  const [benefits, setBenefits] = useState<CommercialBenefit[]>([]);
+  const [benefits, setBenefits] = useState<AdminCommercialBenefit[]>([]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -33,7 +34,7 @@ export const CommercialBenefitsAdminPage: React.FC = () => {
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [benefitToEdit, setBenefitToEdit] = useState<CommercialBenefit | null>(null);
+  const [benefitToEdit, setBenefitToEdit] = useState<AdminCommercialBenefit | null>(null);
 
   const loadData = useCallback(async () => {
     try {

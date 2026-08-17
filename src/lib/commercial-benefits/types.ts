@@ -18,6 +18,21 @@ export interface CommercialBenefit {
   updated_at: string;
 }
 
+export interface CommercialBenefitPrivateDetails {
+  benefit_id: string;
+  discount_code: string | null;
+  redemption_instructions: string | null;
+  exclusive_link_url: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AdminCommercialBenefit extends CommercialBenefit {
+  discount_code?: string | null;
+  redemption_instructions?: string | null;
+  exclusive_link_url?: string | null;
+}
+
 export interface CommercialBenefitFormData {
   name: string;
   benefit_title: string;
@@ -26,11 +41,22 @@ export interface CommercialBenefitFormData {
   logo_media_id: string | null;
   promotional_media_id: string | null;
   link_url: string | null;
+  discount_code?: string | null;
+  redemption_instructions?: string | null;
+  exclusive_link_url?: string | null;
   starts_at: string | null;
   ends_at: string | null;
   display_order: number;
   is_active: boolean;
   is_featured: boolean;
+}
+
+export interface PortalCommercialBenefit extends CommercialBenefit {
+  discount_code?: string | null;
+  redemption_instructions?: string | null;
+  exclusive_link_url?: string | null;
+  logoSignedUrl?: string | null;
+  promotionalSignedUrl?: string | null;
 }
 
 export interface CommercialBenefitFilters {
@@ -42,6 +68,7 @@ export interface CommercialBenefitFilters {
 
 export interface CommercialBenefitWithMedia {
   benefit: CommercialBenefit;
+  privateDetails?: CommercialBenefitPrivateDetails | null;
   logoMedia?: { id: string; storage_path: string } | null;
   promotionalMedia?: { id: string; storage_path: string } | null;
 }

@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
+  AdminCommercialBenefit,
   CommercialBenefit,
   CommercialBenefitFilters,
   CommercialBenefitFormData,
@@ -12,14 +13,15 @@ import {
 /**
  * List all commercial benefits for the administrative panel supporting search and filters.
  * Order: display_order ASC, created_at DESC.
+ * Includes private details for admin editing.
  */
 export async function listCommercialBenefitsAdmin(
   supabase: SupabaseClient,
   filters?: CommercialBenefitFilters
-): Promise<CommercialBenefit[]> {
+): Promise<AdminCommercialBenefit[]> {
   let query = supabase
     .from("commercial_benefits")
-    .select("*");
+    .select("*, commercial_benefit_private_details(discount_code, redemption_instructions, exclusive_link_url)");
 
   if (filters?.activeState && filters.activeState !== "all") {
     query = query.eq("is_active", filters.activeState === "active");
@@ -43,7 +45,21 @@ export async function listCommercialBenefitsAdmin(
   const { data, error } = await query;
   if (error) throw error;
 
-  let results = (data as CommercialBenefit[]) || [];
+  const rawList = (data as unknown as Array<Record<string, unknown>>) || [];
+
+  let results: AdminCommercialBenefit[] = rawList.map((item) => {
+    const privObj = item.commercial_benefit_private_details;
+    const priv = Array.isArray(privObj) ? privObj[0] : privObj;
+
+    const { commercial_benefit_private_details, ...publicFields } = item;
+
+    return {
+      ...(publicFields as unknown as CommercialBenefit),
+      discount_code: (priv as { discount_code?: string })?.discount_code || null,
+      redemption_instructions: (priv as { redemption_instructions?: string })?.redemption_instructions || null,
+      exclusive_link_url: (priv as { exclusive_link_url?: string })?.exclusive_link_url || null,
+    };
+  });
 
   // Filter in memory for validityState if requested
   if (filters?.validityState && filters.validityState !== "all") {
@@ -57,24 +73,37 @@ export async function listCommercialBenefitsAdmin(
 }
 
 /**
- * Get a single commercial benefit record by ID.
+ * Get a single commercial benefit record by ID for admin panel.
  */
 export async function getCommercialBenefitById(
   supabase: SupabaseClient,
   id: string
-): Promise<CommercialBenefit | null> {
+): Promise<AdminCommercialBenefit | null> {
   const { data, error } = await supabase
     .from("commercial_benefits")
-    .select("*")
+    .select("*, commercial_benefit_private_details(discount_code, redemption_instructions, exclusive_link_url)")
     .eq("id", id)
     .maybeSingle();
 
   if (error) throw error;
-  return (data as CommercialBenefit) || null;
+  if (!data) return null;
+
+  const item = data as unknown as Record<string, unknown>;
+  const privObj = item.commercial_benefit_private_details;
+  const priv = Array.isArray(privObj) ? privObj[0] : privObj;
+
+  const { commercial_benefit_private_details, ...publicFields } = item;
+
+  return {
+    ...(publicFields as unknown as CommercialBenefit),
+    discount_code: (priv as { discount_code?: string })?.discount_code || null,
+    redemption_instructions: (priv as { redemption_instructions?: string })?.redemption_instructions || null,
+    exclusive_link_url: (priv as { exclusive_link_url?: string })?.exclusive_link_url || null,
+  };
 }
 
 /**
- * Create a new commercial benefit record.
+ * Create a new commercial benefit record (Public record + Private details).
  */
 export async function createCommercialBenefit(
   supabase: SupabaseClient,
@@ -104,6 +133,7 @@ export async function createCommercialBenefit(
 
   const normalizedUrl = normalizeCommercialBenefitUrl(payload.link_url);
 
+  // 1. Insertar datos públicos en public.commercial_benefits
   const insertData = {
     name: trimmedName,
     benefit_title: trimmedTitle,
@@ -121,18 +151,45 @@ export async function createCommercialBenefit(
     updated_by: userId || null,
   };
 
-  const { data, error } = await supabase
+  const { data: createdBenefit, error } = await supabase
     .from("commercial_benefits")
     .insert([insertData])
     .select("*")
     .single();
 
-  if (error) throw error;
-  return data as CommercialBenefit;
+  if (error || !createdBenefit) throw error || new Error("No se pudo crear el beneficio comercial.");
+
+  // 2. Si existen datos privados, upsert en public.commercial_benefit_private_details
+  const discountCode = payload.discount_code?.trim() || null;
+  const redemptionInstructions = payload.redemption_instructions?.trim() || null;
+  const exclusiveLinkUrl = normalizeCommercialBenefitUrl(payload.exclusive_link_url);
+
+  if (discountCode || redemptionInstructions || exclusiveLinkUrl) {
+    const { error: privErr } = await supabase
+      .from("commercial_benefit_private_details")
+      .upsert(
+        {
+          benefit_id: createdBenefit.id,
+          discount_code: discountCode,
+          redemption_instructions: redemptionInstructions,
+          exclusive_link_url: exclusiveLinkUrl,
+        },
+        { onConflict: "benefit_id" }
+      );
+
+    if (privErr) {
+      console.error("Error al guardar detalles privados del convenio:", privErr);
+      throw new Error(
+        `Error al guardar los detalles privados del convenio: ${privErr.message}`
+      );
+    }
+  }
+
+  return createdBenefit as CommercialBenefit;
 }
 
 /**
- * Update an existing commercial benefit record.
+ * Update an existing commercial benefit record (Public record + Private details).
  */
 export async function updateCommercialBenefit(
   supabase: SupabaseClient,
@@ -206,6 +263,37 @@ export async function updateCommercialBenefit(
     .single();
 
   if (error) throw error;
+
+  // Actualizar tabla privada si los campos están presentes en el payload
+  if (
+    payload.discount_code !== undefined ||
+    payload.redemption_instructions !== undefined ||
+    payload.exclusive_link_url !== undefined
+  ) {
+    const discountCode = payload.discount_code !== undefined ? payload.discount_code?.trim() || null : undefined;
+    const redemptionInstructions = payload.redemption_instructions !== undefined ? payload.redemption_instructions?.trim() || null : undefined;
+    const exclusiveLinkUrl = payload.exclusive_link_url !== undefined ? normalizeCommercialBenefitUrl(payload.exclusive_link_url) : undefined;
+
+    const { error: privErr } = await supabase
+      .from("commercial_benefit_private_details")
+      .upsert(
+        {
+          benefit_id: id,
+          ...(discountCode !== undefined && { discount_code: discountCode }),
+          ...(redemptionInstructions !== undefined && { redemption_instructions: redemptionInstructions }),
+          ...(exclusiveLinkUrl !== undefined && { exclusive_link_url: exclusiveLinkUrl }),
+        },
+        { onConflict: "benefit_id" }
+      );
+
+    if (privErr) {
+      console.error("Error al actualizar detalles privados del convenio:", privErr);
+      throw new Error(
+        `Error al actualizar los detalles privados del convenio: ${privErr.message}`
+      );
+    }
+  }
+
   return data as CommercialBenefit;
 }
 
@@ -250,28 +338,45 @@ export async function toggleCommercialBenefitFeatured(
 }
 
 /**
- * Soft archive a benefit (sets is_active = false, preserves historical records).
+ * Delete a commercial benefit.
  */
-export async function archiveCommercialBenefit(
+export async function deleteCommercialBenefit(
   supabase: SupabaseClient,
-  id: string,
-  userId?: string | null
-): Promise<CommercialBenefit> {
-  return toggleCommercialBenefitActive(supabase, id, false, userId);
+  id: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("commercial_benefits")
+    .delete()
+    .eq("id", id);
+
+  if (error) throw error;
+  return true;
 }
 
 /**
- * Create a temporary 3600s signed URL for media items in private 'media-library' bucket.
+ * Generate a 3600s signed URL for media item attached to a commercial benefit.
  */
 export async function createCommercialBenefitSignedUrl(
   supabase: SupabaseClient,
-  storagePath: string,
-  expiresIn: number = 3600
-): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from("media-library")
-    .createSignedUrl(storagePath, expiresIn);
+  mediaId: string | null
+): Promise<string | null> {
+  if (!mediaId) return null;
 
-  if (error) throw error;
-  return data.signedUrl;
+  const { data, error } = await supabase
+    .from("media_items")
+    .select("storage_path")
+    .eq("id", mediaId)
+    .maybeSingle();
+
+  if (error || !data || !data.storage_path) return null;
+
+  try {
+    const { data: signedData } = await supabase.storage
+      .from("media-library")
+      .createSignedUrl(data.storage_path, 3600);
+    return signedData?.signedUrl || null;
+  } catch {
+    return null;
+  }
 }
+

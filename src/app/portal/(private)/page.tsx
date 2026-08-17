@@ -160,13 +160,13 @@ export default async function PortalDashboardPage() {
         </div>
       </div>
 
-      {/* Módulos Futuros del Portal (Próximamente) */}
+      {/* Módulos Activos del Portal */}
       <div className="space-y-4 pt-4">
         <h3 className="text-xl font-bold text-white font-heading">
           Accesos del Portal
         </h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Card: Mi Perfil */}
           <Link
             href="/portal/perfil"
@@ -189,20 +189,46 @@ export default async function PortalDashboardPage() {
           </Link>
 
           {/* Card: Convenios */}
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-3 relative cursor-not-allowed">
+          <Link
+            href="/portal/beneficios"
+            className="bg-slate-900 border border-slate-800 hover:border-teal-500/60 p-6 rounded-3xl space-y-3 relative group transition-all hover:scale-[1.02] shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
             <div className="flex items-center justify-between">
-              <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700/60 text-slate-300 flex items-center justify-center">
-                <Award className="w-5 h-5 text-slate-400" />
+              <div className="w-10 h-10 rounded-2xl bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center">
+                <Award className="w-5 h-5" />
               </div>
-              <span className="text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300 px-2.5 py-1 rounded-full uppercase">
-                Próximamente
+              <span className="text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/40 px-2.5 py-1 rounded-full uppercase">
+                Disponible
               </span>
             </div>
-            <h4 className="text-base font-bold text-slate-200">Beneficios Exclusivos</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Convenios comerciales y códigos de descuento para asociados activos.
+            <h4 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors">
+              Beneficios Exclusivos
+            </h4>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Consulta tus convenios comerciales, códigos de descuento e instrucciones.
             </p>
-          </div>
+          </Link>
+
+          {/* Card: Recursos */}
+          <Link
+            href="/portal/recursos"
+            className="bg-slate-900 border border-slate-800 hover:border-teal-500/60 p-6 rounded-3xl space-y-3 relative group transition-all hover:scale-[1.02] shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-10 h-10 rounded-2xl bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/40 px-2.5 py-1 rounded-full uppercase">
+                Disponible
+              </span>
+            </div>
+            <h4 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors">
+              Biblioteca & Recursos
+            </h4>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Documentación técnica, guías clínicas, actas y enlaces reservados.
+            </p>
+          </Link>
 
           {/* Card: Certificados */}
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-3 relative cursor-not-allowed">
