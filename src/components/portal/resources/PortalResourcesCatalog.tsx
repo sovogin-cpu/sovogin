@@ -27,6 +27,7 @@ export interface PortalResourceItem {
   file_url: string;
   description?: string | null;
   format?: string | null;
+  visibility?: string | null;
   created_at: string;
   signedUrl?: string | null;
 }

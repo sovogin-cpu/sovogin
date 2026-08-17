@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { FileText, Eye, Plus, Search, FileUp, Loader2, Trash2, Edit2, Play, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -12,13 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ interface Resource {
   resource_type: string;
   file_url: string;
   description?: string | null;
+  visibility?: "public" | "members_only";
   created_at: string;
 }
 
@@ -40,6 +41,7 @@ interface ResourceFormData {
   youtube_url: string;
   external_link: string;
   description: string;
+  visibility: "public" | "members_only";
 }
 
 interface ResourcePayload {
@@ -48,12 +50,13 @@ interface ResourcePayload {
   resource_type: string;
   file_url: string;
   description: string;
+  visibility: "public" | "members_only";
 }
 
 const resourceCategories = [
-  "Documentación SOVOGIN", 
-  "Simposios", 
-  "Charlas", 
+  "Documentación SOVOGIN",
+  "Simposios",
+  "Charlas",
   "Lives",
   "Guías Clínicas",
   "Protocolos",
@@ -82,7 +85,8 @@ export default function ResourcesAdmin() {
     file_url: "",
     youtube_url: "",
     external_link: "",
-    description: ""
+    description: "",
+    visibility: "public"
   });
 
   const fetchResources = useCallback(async () => {
@@ -129,19 +133,25 @@ export default function ResourcesAdmin() {
     };
   }, [supabase]);
 
-  async function uploadFile(file: File) {
+  async function uploadFile(file: File, isMembersOnly: boolean) {
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
+    const fileName = `${Math.random().toString(36).substring(2, 9)}_${Date.now()}.${fileExt}`;
+    const targetBucket = isMembersOnly ? 'member-resources' : 'media-library';
     const filePath = `${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('resources')
+      .from(targetBucket)
       .upload(filePath, file);
 
     if (uploadError) throw uploadError;
 
+    if (isMembersOnly) {
+      // Para bucket privado member-resources guardamos la ruta relativa
+      return `member-resources/${filePath}`;
+    }
+
     const { data } = supabase.storage
-      .from('resources')
+      .from('media-library')
       .getPublicUrl(filePath);
 
     return data.publicUrl;
@@ -152,11 +162,41 @@ export default function ResourcesAdmin() {
     setIsSubmitting(true);
 
     try {
+      // Validar transiciones inseguras de visibilidad para documentos alojados por SOVOGIN
+      if (editingId && formData.resource_type === 'document') {
+        const currentRes = resources.find((r) => r.id === editingId);
+        if (currentRes) {
+          const currentVis = currentRes.visibility || "public";
+          const newVis = formData.visibility;
+
+          // Caso A: public -> members_only sin subir nuevo archivo privado
+          if (currentVis === "public" && newVis === "members_only" && !selectedFile) {
+            const isAlreadyInPrivateBucket = currentRes.file_url?.startsWith("member-resources/");
+            if (!isAlreadyInPrivateBucket) {
+              throw new Error(
+                "Para convertir este documento en exclusivo para asociados debes subir una nueva copia del archivo. La nueva copia se almacenará de forma privada en member-resources."
+              );
+            }
+          }
+
+          // Caso B: members_only -> public sin subir nuevo archivo público
+          if (currentVis === "members_only" && newVis === "public" && !selectedFile) {
+            const isInPrivateBucket = currentRes.file_url?.startsWith("member-resources/");
+            if (isInPrivateBucket) {
+              throw new Error(
+                "Para convertir este documento en público debes subir una nueva copia del archivo. La nueva copia se almacenará en el almacenamiento público media-library."
+              );
+            }
+          }
+        }
+      }
+
       let finalFileUrl = formData.file_url;
-      
-      // If it's a document, we might need to upload it
+      const isMembersOnly = formData.visibility === 'members_only';
+
+      // If it's a document, upload to correct bucket based on visibility
       if (formData.resource_type === 'document' && selectedFile) {
-        finalFileUrl = await uploadFile(selectedFile);
+        finalFileUrl = await uploadFile(selectedFile, isMembersOnly);
       } else if (formData.resource_type === 'video') {
         finalFileUrl = formData.youtube_url;
       } else if (formData.resource_type === 'link') {
@@ -165,12 +205,13 @@ export default function ResourcesAdmin() {
 
       if (!finalFileUrl && !editingId) throw new Error("Debes proporcionar un archivo o enlace");
 
-      const payload: ResourcePayload = { 
+      const payload: ResourcePayload = {
         title: formData.title,
         category: formData.category,
         resource_type: formData.resource_type,
         file_url: finalFileUrl,
-        description: formData.description
+        description: formData.description,
+        visibility: formData.visibility
       };
 
       if (editingId) {
@@ -200,7 +241,8 @@ export default function ResourcesAdmin() {
       file_url: res.file_url || "",
       youtube_url: res.resource_type === 'video' ? res.file_url : "",
       external_link: res.resource_type === 'link' ? res.file_url : "",
-      description: res.description || ""
+      description: res.description || "",
+      visibility: res.visibility === "members_only" ? "members_only" : "public"
     });
     setIsModalOpen(true);
   }
@@ -224,7 +266,7 @@ export default function ResourcesAdmin() {
           <h1 className="text-3xl font-bold text-slate-900 font-heading">Biblioteca de Recursos</h1>
           <p className="text-slate-500">Administra guías clínicas, protocolos y material educativo.</p>
         </div>
-        
+
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <Button
             type="button"
@@ -239,7 +281,8 @@ export default function ResourcesAdmin() {
                 file_url: "",
                 youtube_url: "",
                 external_link: "",
-                description: ""
+                description: "",
+                visibility: "public"
               });
               setIsModalOpen(true);
             }}
@@ -267,8 +310,8 @@ export default function ResourcesAdmin() {
                         onClick={() => setFormData({...formData, resource_type: type.id})}
                         className={cn(
                           "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2",
-                          isSelected 
-                            ? "border-primary bg-primary/5 text-primary shadow-sm" 
+                          isSelected
+                            ? "border-primary bg-primary/5 text-primary shadow-sm"
                             : "border-slate-100 bg-white text-slate-400 hover:border-slate-200"
                         )}
                       >
@@ -280,14 +323,32 @@ export default function ResourcesAdmin() {
                 </div>
               </div>
 
+              {/* Selector de Nivel de Acceso (Visibilidad) */}
+              <div className="space-y-2">
+                <Label className="font-bold text-slate-700">Nivel de Acceso / Visibilidad</Label>
+                <select
+                  value={formData.visibility}
+                  onChange={e => setFormData({...formData, visibility: e.target.value as "public" | "members_only"})}
+                  className="w-full h-12 px-4 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm font-medium"
+                >
+                  <option value="public">Público — Abierto en la web general</option>
+                  <option value="members_only">Exclusivo — Solo para Asociados en el Portal</option>
+                </select>
+                {formData.visibility === "members_only" && formData.resource_type === "document" && (
+                  <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200 font-medium">
+                    🔒 Los archivos subidos con visibilidad exclusiva se almacenarán en el bucket privado <code>member-resources</code>.
+                  </p>
+                )}
+              </div>
+
               {formData.resource_type === 'document' && (
                 <div className="space-y-2">
                   <Label>Archivo (PDF, Word, PPT)</Label>
                   <div className="p-6 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 flex flex-col items-center justify-center gap-2">
                     <FileUp className="w-8 h-8 text-slate-300" />
-                    <input 
-                      type="file" 
-                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} 
+                    <input
+                      type="file"
+                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                       className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-primary/90"
                     />
                     {selectedFile && <p className="text-xs font-bold text-primary">{selectedFile.name}</p>}
@@ -298,9 +359,9 @@ export default function ResourcesAdmin() {
               {formData.resource_type === 'video' && (
                 <div className="space-y-2">
                   <Label>Link de YouTube</Label>
-                  <Input 
-                    required 
-                    placeholder="https://www.youtube.com/watch?v=..." 
+                  <Input
+                    required
+                    placeholder="https://www.youtube.com/watch?v=..."
                     value={formData.youtube_url}
                     onChange={e => setFormData({...formData, youtube_url: e.target.value})}
                     className="rounded-xl h-12"
@@ -311,9 +372,9 @@ export default function ResourcesAdmin() {
               {formData.resource_type === 'link' && (
                 <div className="space-y-2">
                   <Label>URL del Enlace</Label>
-                  <Input 
-                    required 
-                    placeholder="https://ejemplo.com/recurso" 
+                  <Input
+                    required
+                    placeholder="https://ejemplo.com/recurso"
                     value={formData.external_link}
                     onChange={e => setFormData({...formData, external_link: e.target.value})}
                     className="rounded-xl h-12"
@@ -328,15 +389,15 @@ export default function ResourcesAdmin() {
 
               <div className="space-y-2">
                 <Label>Categoría</Label>
-                <select 
-                  value={formData.category} 
+                <select
+                  value={formData.category}
                   onChange={e => setFormData({...formData, category: e.target.value})}
                   className="w-full h-12 px-4 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
                   {resourceCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              
+
               <Button type="submit" disabled={isSubmitting} className="w-full h-14 rounded-xl font-bold bg-primary text-white text-lg">
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publicar Recurso"}
               </Button>
@@ -352,7 +413,7 @@ export default function ResourcesAdmin() {
             <input placeholder="Buscar recursos..." className="w-full h-12 pl-12 pr-4 rounded-xl border border-slate-100 bg-slate-50/50" />
           </div>
         </div>
-        
+
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-primary" /></div>
         ) : (
@@ -371,8 +432,8 @@ export default function ResourcesAdmin() {
                   <TableCell className="pl-8 py-6">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary shrink-0">
-                        {res.resource_type === 'video' ? <Play className="w-5 h-5" /> : 
-                         res.resource_type === 'link' ? <Globe className="w-5 h-5" /> : 
+                        {res.resource_type === 'video' ? <Play className="w-5 h-5" /> :
+                         res.resource_type === 'link' ? <Globe className="w-5 h-5" /> :
                          <FileText className="w-5 h-5" />}
                       </div>
                       <div className="flex flex-col">
@@ -389,9 +450,9 @@ export default function ResourcesAdmin() {
                   </TableCell>
                   <TableCell className="text-right pr-8">
                     <div className="flex items-center justify-end gap-2">
-                      <a 
-                        href={res.file_url} 
-                        target="_blank" 
+                      <a
+                        href={res.file_url}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center justify-center h-10 w-10 rounded-xl hover:bg-slate-100 text-slate-400"
                       >

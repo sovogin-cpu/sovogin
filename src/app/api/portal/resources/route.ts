@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     // 2. Consultar recursos exclusivamente desde la base de datos
     const { data: resources, error: resourcesError } = await supabaseAdmin
       .from("resources")
-      .select("id, title, category, resource_type, file_url, description, format, created_at")
+      .select("id, title, category, resource_type, file_url, description, format, visibility, created_at")
       .order("created_at", { ascending: false });
 
     if (resourcesError) {
