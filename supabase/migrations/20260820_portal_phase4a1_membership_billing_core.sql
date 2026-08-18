@@ -139,8 +139,8 @@ CREATE INDEX IF NOT EXISTS idx_mb_allocations_charge ON public.membership_paymen
 CREATE INDEX IF NOT EXISTS idx_mb_adjustments_charge ON public.membership_adjustments (charge_id);
 
 -- Unicidad estricta: una reversión total por ajuste original
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_adjustment_reversal 
-ON public.membership_adjustments (reverses_adjustment_id) 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_adjustment_reversal
+ON public.membership_adjustments (reverses_adjustment_id)
 WHERE type = 'reversal';
 
 -- 10. HABILITAR ROW LEVEL SECURITY (RLS)
@@ -345,7 +345,7 @@ BEGIN
     FROM public.membership_payment_allocations
     WHERE charge_id = NEW.charge_id AND reversed_at IS NULL;
 
-    SELECT 
+    SELECT
         COALESCE(SUM(CASE WHEN type IN ('waiver', 'discount', 'write_off') THEN amount ELSE 0 END), 0) -
         COALESCE(SUM(CASE WHEN type = 'reversal' THEN amount ELSE 0 END), 0)
     INTO v_charge_adjustments
@@ -412,7 +412,7 @@ BEGIN
             FROM public.membership_payment_allocations
             WHERE charge_id = NEW.charge_id AND reversed_at IS NULL;
 
-            SELECT 
+            SELECT
                 COALESCE(SUM(CASE WHEN type IN ('waiver', 'discount', 'write_off') THEN amount ELSE 0 END), 0) -
                 COALESCE(SUM(CASE WHEN type = 'reversal' THEN amount ELSE 0 END), 0)
             INTO v_charge_adjustments
@@ -514,7 +514,7 @@ BEGIN
           AND pa.reversed_at IS NULL
           AND p.status = 'completed';
 
-        SELECT 
+        SELECT
             COALESCE(SUM(CASE WHEN ma.type IN ('waiver', 'discount', 'write_off') THEN ma.amount ELSE 0 END), 0) -
             COALESCE(SUM(CASE WHEN ma.type = 'reversal' THEN ma.amount ELSE 0 END), 0)
         INTO v_active_adjustments
