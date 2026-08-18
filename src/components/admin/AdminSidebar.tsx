@@ -17,7 +17,8 @@ import {
   FolderKanban,
   Newspaper,
   FolderTree,
-  Receipt
+  Receipt,
+  CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -33,6 +34,7 @@ const menuItems = [
   { name: "Categorías CMS", href: "/admin/categorias", icon: FolderTree },
   { name: "Directorio Médico", href: "/admin/directorio-medico", icon: Users2 },
   { name: "Miembros", href: "/admin/miembros", icon: Users },
+  { name: "Membresías", href: "/admin/membresias", icon: CreditCard },
   { name: "Recursos", href: "/admin/recursos", icon: FileText },
   { name: "Banners", href: "/admin/banners", icon: ImageIcon },
   { name: "Chatbot", href: "/admin/chatbot", icon: MessageSquare },
