@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   User,
+  CreditCard,
   Award,
   BookOpen,
   FileText,
@@ -25,6 +26,11 @@ const portalMenuItems = [
     name: "Mi Perfil Profesional",
     href: "/portal/perfil",
     icon: User,
+  },
+  {
+    name: "Mi Membresía",
+    href: "/portal/membresia",
+    icon: CreditCard,
   },
   {
     name: "Beneficios Exclusivos",
