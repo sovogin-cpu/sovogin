@@ -15,6 +15,7 @@ import {
   TrendingDown,
   Layers,
   Filter,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,6 +145,15 @@ export default function MembershipsAdminPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <Link href="/admin/membresias/facturacion">
+            <Button
+              variant="outline"
+              className="h-12 px-5 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 gap-2 font-bold shadow-xs"
+            >
+              <Calendar className="w-5 h-5 text-[#006666]" />
+              Facturación Automática
+            </Button>
+          </Link>
           <Link href="/admin/membresias/planes">
             <Button
               variant="outline"
