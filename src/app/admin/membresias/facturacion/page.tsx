@@ -14,6 +14,8 @@ import {
   Activity,
   Layers,
   RefreshCw,
+  Zap,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -82,6 +84,17 @@ interface BillingMonitorData {
   recentSystemCharges: RecentSystemCharge[];
 }
 
+interface ExecutionResultData {
+  today: string;
+  scanned: number;
+  eligible: number;
+  candidatesCount: number;
+  createdCount: number;
+  idempotentSkippedCount: number;
+  failedCount: number;
+  catchUpLimitedMembershipsCount: number;
+}
+
 export default function BillingSchedulerMonitorPage() {
   const [preview, setPreview] = useState<BillingPreviewData | null>(null);
   const [monitor, setMonitor] = useState<BillingMonitorData | null>(null);
@@ -91,6 +104,13 @@ export default function BillingSchedulerMonitorPage() {
 
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [monitorError, setMonitorError] = useState<string | null>(null);
+
+  // Modal State for Manual Billing Execution
+  const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [executionSummary, setExecutionSummary] = useState<ExecutionResultData | null>(null);
 
   const formatMoney = (amount: number, currency = "COP") => {
     return new Intl.NumberFormat("es-CO", {
@@ -188,6 +208,69 @@ export default function BillingSchedulerMonitorPage() {
     void fetchMonitorData();
   };
 
+  // Total amount COP calculation from preview candidates
+  const totalCandidatesAmount = preview?.candidates.reduce(
+    (sum, item) => sum + Number(item.amount || 0),
+    0
+  ) || 0;
+
+  // Open Modal reset
+  const handleOpenRunModal = () => {
+    setIsConfirmed(false);
+    setRunError(null);
+    setExecutionSummary(null);
+    setIsRunModalOpen(true);
+  };
+
+  // Close Modal and Refresh
+  const handleCloseRunModal = () => {
+    setIsRunModalOpen(false);
+    setIsConfirmed(false);
+    setRunError(null);
+    if (executionSummary) {
+      handleRefreshAll();
+    }
+    setExecutionSummary(null);
+  };
+
+  // Execute Manual Billing Run
+  const handleExecuteBillingRun = async () => {
+    if (!isConfirmed || isExecuting) return;
+
+    setIsExecuting(true);
+    setRunError(null);
+
+    try {
+      const res = await fetch("/api/admin/memberships/billing-run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          confirmation: "GENERATE_MEMBERSHIP_CHARGES",
+        }),
+      });
+
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+
+      if (!res.ok || !isJson) {
+        throw new Error(`Error en servidor (${res.status}). No se recibió respuesta JSON válida.`);
+      }
+
+      const json = await res.json();
+
+      if (!json.success || !json.data) {
+        throw new Error(json.error || "No se pudo completar la facturación manual.");
+      }
+
+      setExecutionSummary(json.data);
+    } catch (err: unknown) {
+      setRunError(err instanceof Error ? err.message : "Error al ejecutar la facturación manual.");
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Header Controls */}
@@ -219,6 +302,34 @@ export default function BillingSchedulerMonitorPage() {
             <RefreshCw className={`w-4 h-4 ${loadingPreview || loadingMonitor ? "animate-spin" : ""}`} />
             Actualizar
           </Button>
+
+          {/* Botón Ejecutar Facturación Ahora (Fase 4A4.4B - UX Tooltip Fix) */}
+          {(() => {
+            const isDisabled = loadingPreview || !preview || preview.candidatesCount === 0;
+            const tooltipText = loadingPreview
+              ? "Cargando simulación de facturación..."
+              : preview?.candidatesCount === 0
+              ? "No hay cuotas pendientes por generar hoy."
+              : "Ejecutar facturación recurrente manualmente";
+
+            return (
+              <span
+                className={`inline-block ${isDisabled ? "cursor-not-allowed" : ""}`}
+                title={tooltipText}
+              >
+                <Button
+                  disabled={isDisabled}
+                  aria-disabled={isDisabled}
+                  onClick={handleOpenRunModal}
+                  className="h-12 px-5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold gap-2 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <Zap className="w-5 h-5 fill-current text-teal-300" />
+                  Ejecutar Facturación Ahora
+                </Button>
+              </span>
+            );
+          })()}
+
           <Link href="/admin/membresias/planes">
             <Button
               variant="outline"
@@ -539,6 +650,217 @@ export default function BillingSchedulerMonitorPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmación y Ejecución Manual (Fase 4A4.4B) */}
+      {isRunModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-6 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={handleCloseRunModal}
+              disabled={isExecuting}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1 rounded-xl transition-colors disabled:opacity-50"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Content - Execution Summary Result */}
+            {executionSummary ? (
+              <div className="space-y-6 py-2">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                      executionSummary.failedCount > 0
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
+                    {executionSummary.failedCount > 0 ? (
+                      <AlertTriangle className="w-6 h-6 text-amber-600" />
+                    ) : (
+                      <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900 font-heading">
+                      {executionSummary.failedCount > 0
+                        ? "Facturación Completada con Advertencias"
+                        : "Facturación Ejecutada Exitosamente"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Fecha de ejecución: {executionSummary.today}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+                    <div className="text-2xl font-black text-emerald-900">
+                      {executionSummary.createdCount}
+                    </div>
+                    <div className="text-xs text-emerald-700 font-bold uppercase">
+                      Creados
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <div className="text-2xl font-black text-slate-700">
+                      {executionSummary.idempotentSkippedCount}
+                    </div>
+                    <div className="text-xs text-slate-500 font-bold uppercase">
+                      Idempotentes
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-2xl p-4 border ${
+                      executionSummary.failedCount > 0
+                        ? "bg-rose-50 border-rose-100 text-rose-900"
+                        : "bg-slate-50 border-slate-100 text-slate-400"
+                    }`}
+                  >
+                    <div className="text-2xl font-black">
+                      {executionSummary.failedCount}
+                    </div>
+                    <div className="text-xs font-bold uppercase">Fallidos</div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={handleCloseRunModal}
+                    className="h-11 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                  >
+                    Cerrar y Actualizar Dashboard
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              /* Modal Content - Confirmation Form */
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center gap-2 text-rose-600 mb-1">
+                    <Zap className="w-5 h-5 fill-current" />
+                    <span className="text-xs font-extrabold uppercase tracking-wider">
+                      Ejecución Manual Confirmada
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-900 font-heading">
+                    Generar Cargos de Membresía
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Esta acción procesará la facturación real e insertará cuotas oficiales en la base de datos.
+                  </p>
+                </div>
+
+                {/* Resumen de Impacto */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <div>
+                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider">
+                      Candidatos a Procesar
+                    </div>
+                    <div className="text-2xl font-black text-slate-900">
+                      {preview?.candidatesCount || 0} asociados
+                    </div>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <div className="text-xs text-slate-500 uppercase font-bold tracking-wider">
+                      Monto Total en COP
+                    </div>
+                    <div className="text-2xl font-black text-[#006666]">
+                      {formatMoney(totalCandidatesAmount)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tabla Resumida de Candidatos */}
+                <div className="max-h-48 overflow-y-auto rounded-2xl border border-slate-200">
+                  <Table>
+                    <TableHeader className="bg-slate-100/70">
+                      <TableRow>
+                        <TableHead className="text-xs font-bold text-slate-700">Asociado</TableHead>
+                        <TableHead className="text-xs font-bold text-slate-700">Plan</TableHead>
+                        <TableHead className="text-xs font-bold text-slate-700 text-right">Monto</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {preview?.candidates.map((cand) => (
+                        <TableRow key={cand.billingCycleKey} className="text-xs">
+                          <TableCell className="font-bold text-slate-900">
+                            {cand.associateName}
+                          </TableCell>
+                          <TableCell className="text-slate-600">
+                            {cand.planName}
+                          </TableCell>
+                          <TableCell className="font-black text-slate-900 text-right">
+                            {formatMoney(cand.amount, cand.currency)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mensaje de Error si ocurrió fallo */}
+                {runError && (
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 flex items-start gap-3 text-sm">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Fallo en la Ejecución:</span> {runError}
+                    </div>
+                  </div>
+                )}
+
+                {/* Checkbox de Confirmación Explícita */}
+                <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="confirm-billing-run"
+                      checked={isConfirmed}
+                      onChange={(e) => setIsConfirmed(e.target.checked)}
+                      disabled={isExecuting}
+                      className="mt-1 w-4 h-4 text-teal-700 rounded-md border-amber-300 focus:ring-teal-500 cursor-pointer"
+                    />
+                    <label
+                      htmlFor="confirm-billing-run"
+                      className="text-xs text-amber-900 font-semibold cursor-pointer select-none"
+                    >
+                      Confirmo que revisé la simulación y deseo generar estos cargos reales de membresía en la base de datos.
+                    </label>
+                  </div>
+                </div>
+
+                {/* Botones de Acción Modal */}
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleCloseRunModal}
+                    disabled={isExecuting}
+                    className="h-11 px-5 rounded-xl border-slate-200 font-bold"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    disabled={!isConfirmed || isExecuting}
+                    onClick={handleExecuteBillingRun}
+                    className="h-11 px-6 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isExecuting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generando Cargos...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 fill-current text-teal-300" />
+                        Generar Cargos
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
