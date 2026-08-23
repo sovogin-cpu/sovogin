@@ -37,6 +37,32 @@ export interface BillingDryRunResult {
   catchUpLimitedMembershipsCount: number;
 }
 
+export interface BillingExecutionCandidateResult {
+  membershipId: string;
+  associateId: string;
+  billingCycleKey: string;
+  periodStart: string;
+  amount: number;
+  chargeId?: string;
+  creditAllocationsCreated?: number;
+  status: "CREATED" | "IDEMPOTENT_SKIP" | "FAILED";
+  errorCode?: string;
+  safeErrorMessage?: string;
+}
+
+export interface BillingExecutionResult {
+  today: string;
+  scanned: number;
+  eligible: number;
+  candidatesCount: number;
+  createdCount: number;
+  idempotentSkippedCount: number;
+  failedCount: number;
+  catchUpLimitedMembershipsCount: number;
+  skipped: BillingDryRunResult["skipped"];
+  results: BillingExecutionCandidateResult[];
+}
+
 /**
  * Returns today's calendar date in YYYY-MM-DD format for America/Bogota timezone.
  */
@@ -523,5 +549,116 @@ export async function runBillingDryRun(supabase: SupabaseClient): Promise<Billin
     skipped,
     candidates: allCandidates,
     catchUpLimitedMembershipsCount,
+  };
+}
+
+/**
+ * Runs server-side real billing execution across all associate memberships.
+ * Reuses runBillingDryRun to get candidates, then calls public.create_membership_charge RPC for each candidate.
+ */
+export async function runBillingExecution(supabaseAdmin: SupabaseClient): Promise<BillingExecutionResult> {
+  const dryRunResult = await runBillingDryRun(supabaseAdmin);
+
+  let createdCount = 0;
+  let idempotentSkippedCount = 0;
+  let failedCount = 0;
+  const executionResults: BillingExecutionCandidateResult[] = [];
+
+  for (const cand of dryRunResult.candidates) {
+    try {
+      const { data, error } = await supabaseAdmin.rpc("create_membership_charge", {
+        p_associate_id: cand.associateId,
+        p_membership_id: cand.membershipId,
+        p_concept: cand.concept,
+        p_original_amount: cand.amount,
+        p_currency: cand.currency,
+        p_due_date: cand.dueDate,
+        p_period_start: cand.periodStart,
+        p_period_end: cand.periodEnd,
+        p_billing_cycle_key: cand.billingCycleKey,
+        p_source: "system",
+      });
+
+      if (error) {
+        // Check for 23505 (unique_violation on billing_cycle_key)
+        const is23505 =
+          error.code === "23505" ||
+          (error.message && error.message.toLowerCase().includes("billing_cycle_key")) ||
+          (error.message && error.message.toLowerCase().includes("unique constraint"));
+
+        if (is23505) {
+          idempotentSkippedCount++;
+          executionResults.push({
+            membershipId: cand.membershipId,
+            associateId: cand.associateId,
+            billingCycleKey: cand.billingCycleKey,
+            periodStart: cand.periodStart,
+            amount: cand.amount,
+            status: "IDEMPOTENT_SKIP",
+          });
+        } else {
+          failedCount++;
+          executionResults.push({
+            membershipId: cand.membershipId,
+            associateId: cand.associateId,
+            billingCycleKey: cand.billingCycleKey,
+            periodStart: cand.periodStart,
+            amount: cand.amount,
+            status: "FAILED",
+            errorCode: error.code || "RPC_ERROR",
+            safeErrorMessage: error.message || "Error al invocar create_membership_charge",
+          });
+        }
+      } else if (data && data.success === true) {
+        createdCount++;
+        executionResults.push({
+          membershipId: cand.membershipId,
+          associateId: cand.associateId,
+          billingCycleKey: cand.billingCycleKey,
+          periodStart: cand.periodStart,
+          amount: cand.amount,
+          chargeId: data.charge_id,
+          creditAllocationsCreated: Number(data.credit_allocations_created || 0),
+          status: "CREATED",
+        });
+      } else {
+        failedCount++;
+        executionResults.push({
+          membershipId: cand.membershipId,
+          associateId: cand.associateId,
+          billingCycleKey: cand.billingCycleKey,
+          periodStart: cand.periodStart,
+          amount: cand.amount,
+          status: "FAILED",
+          errorCode: "UNKNOWN_RESPONSE",
+          safeErrorMessage: data?.error || "Respuesta no exitosa de create_membership_charge",
+        });
+      }
+    } catch (err: unknown) {
+      failedCount++;
+      executionResults.push({
+        membershipId: cand.membershipId,
+        associateId: cand.associateId,
+        billingCycleKey: cand.billingCycleKey,
+        periodStart: cand.periodStart,
+        amount: cand.amount,
+        status: "FAILED",
+        errorCode: "EXCEPTION",
+        safeErrorMessage: err instanceof Error ? err.message : "Excepción no controlada",
+      });
+    }
+  }
+
+  return {
+    today: dryRunResult.today,
+    scanned: dryRunResult.scanned,
+    eligible: dryRunResult.eligible,
+    candidatesCount: dryRunResult.candidatesCount,
+    createdCount,
+    idempotentSkippedCount,
+    failedCount,
+    catchUpLimitedMembershipsCount: dryRunResult.catchUpLimitedMembershipsCount,
+    skipped: dryRunResult.skipped,
+    results: executionResults,
   };
 }
