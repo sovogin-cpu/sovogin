@@ -52,25 +52,26 @@ export function ChatbotWidget() {
       
       const data = (await res.json()) as ChatApiResponse;
       
-      if (typeof data.text === "string" && data.text.trim().length > 0) {
-        setMessages((prev) => [...prev, { 
-          role: "bot", 
-          content: data.text as string 
+      if (res.ok && typeof data.text === "string" && data.text.trim().length > 0) {
+        setMessages((prev) => [...prev, {
+          role: "bot",
+          content: data.text as string
         }]);
       } else {
-        const errorMsg =
-          typeof data.details === "string"
-            ? data.details
-            : typeof data.error === "string"
+        const errorMessage =
+          typeof data.error === "string" && data.error.trim().length > 0
             ? data.error
-            : "No response from AI";
-        throw new Error(errorMsg);
+            : "Lo siento, tuve un problema al procesar tu solicitud. Por favor intenta de nuevo más tarde.";
+        setMessages((prev) => [...prev, {
+          role: "bot",
+          content: errorMessage
+        }]);
       }
     } catch (error: unknown) {
       console.error("Chat error:", error);
-      setMessages((prev) => [...prev, { 
-        role: "bot", 
-        content: "Lo siento, tuve un problema al procesar tu solicitud. Por favor intenta de nuevo más tarde." 
+      setMessages((prev) => [...prev, {
+        role: "bot",
+        content: "Lo siento, tuve un problema al procesar tu solicitud. Por favor intenta de nuevo más tarde."
       }]);
     } finally {
       setIsLoading(false);

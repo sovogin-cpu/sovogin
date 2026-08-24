@@ -111,7 +111,7 @@ export default function ChatbotAdmin() {
         <Card className="border-none shadow-sm rounded-3xl bg-white overflow-hidden relative group border border-slate-50">
           <CardContent className="p-8">
             <MessageSquare className="w-12 h-12 mb-4 text-primary opacity-20 group-hover:scale-110 transition-transform" />
-            <h3 className="text-3xl font-bold text-slate-900 font-heading">Gemini 1.5</h3>
+            <h3 className="text-3xl font-bold text-slate-900 font-heading">Gemini 2.5 Flash</h3>
             <p className="text-slate-500">Modelo de lenguaje actual</p>
           </CardContent>
         </Card>

@@ -43,19 +43,23 @@ export async function POST(req: Request) {
         "X-Title": "SOVOGIN Assistant"
       },
       body: JSON.stringify({
-        "model": "google/gemini-2.0-flash-001",
+        "model": "google/gemini-2.5-flash",
         "messages": [
           { "role": "system", "content": systemPrompt },
           { "role": "user", "content": message }
         ],
+        "max_tokens": 2048
       })
     });
 
     const data = await response.json();
     const text = data.choices?.[0]?.message?.content;
 
-    if (!text) {
-      throw new Error(data.error?.message || "No response from OpenRouter");
+    if (!response.ok || !text) {
+      console.error("OpenRouter API Error:", data.error?.message || "No content returned from OpenRouter");
+      return NextResponse.json({
+        error: "No pudimos generar una respuesta en este momento. Por favor intenta nuevamente."
+      }, { status: 500 });
     }
 
     // 3. Store conversation
@@ -67,10 +71,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ text });
   } catch (error: any) {
-    console.error("OpenRouter API Error:", error);
-    return NextResponse.json({ 
-      error: "Failed to generate response", 
-      details: error.message || "Unknown error" 
+    console.error("Chat API Route Error:", error?.message || error);
+    return NextResponse.json({
+      error: "No pudimos generar una respuesta en este momento. Por favor intenta nuevamente."
     }, { status: 500 });
   }
 }
