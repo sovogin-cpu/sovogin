@@ -6,9 +6,6 @@ import {
 } from "../types";
 import { normalizeText } from "../normalize-text";
 
-// Importación CJS de PDFParse
-const { PDFParse } = require("pdf-parse");
-
 export async function extractTextFromPdf(
   buffer: Buffer,
   fileName: string,
@@ -17,6 +14,14 @@ export async function extractTextFromPdf(
   if (!buffer || buffer.length === 0) {
     throw new DocumentProcessingError("EMPTY_FILE", "El archivo PDF está vacío.");
   }
+
+  // Polyfill defensivo para DOMMatrix en entornos Serverless / Next.js Build Worker
+  if (typeof (globalThis as any).DOMMatrix === "undefined") {
+    (globalThis as any).DOMMatrix = class DOMMatrix {};
+  }
+
+  // Importación perezosa (lazy require) de PDFParse para evitar inicialización en top-level
+  const { PDFParse } = require("pdf-parse");
 
   const pageExtractions: PageExtraction[] = [];
   let pdfResult: any;

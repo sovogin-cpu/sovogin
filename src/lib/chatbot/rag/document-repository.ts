@@ -153,7 +153,7 @@ export async function deleteDocumentChunks(documentId: string): Promise<void> {
  */
 export async function updateDocumentStatus(
   documentId: string,
-  status: "ready" | "failed",
+  status: "uploaded" | "processing" | "ready" | "failed",
   chunkCount: number,
   errorMessage: string | null = null
 ): Promise<void> {
