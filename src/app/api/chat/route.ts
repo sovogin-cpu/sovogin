@@ -132,6 +132,60 @@ function buildDeduplicatedSources(chunks: SearchResultItem[]): ChatSourceMetadat
   return sources;
 }
 
+/**
+ * Realiza la llamada a OpenRouter API con reintentos defensivos para resiliencia de red.
+ */
+async function callOpenRouterWithRetry(
+  apiKey: string,
+  systemPrompt: string,
+  userMessage: string,
+  maxRetries = 2
+): Promise<{ ok: boolean; responseText?: string; error?: string }> {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+          "X-Title": "SOVOGIN Assistant",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+          max_tokens: 2048,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      const text = data.choices?.[0]?.message?.content;
+
+      if (res.ok && typeof text === "string" && text.trim().length > 0) {
+        return { ok: true, responseText: text };
+      }
+
+      if (attempt <= maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+
+      return { ok: false, error: data.error?.message || "No content returned from OpenRouter" };
+    } catch (err: any) {
+      if (attempt <= maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      return { ok: false, error: err?.message || "Network error fetching OpenRouter" };
+    }
+  }
+
+  return { ok: false, error: "OpenRouter retry limit reached" };
+}
+
 export async function POST(req: Request) {
   const startTime = Date.now();
 
@@ -242,33 +296,16 @@ ${rawRagText || "No se encontraron fragmentos documentales semánticamente coinc
 ${rawLegacyText || "No hay conocimiento manual adicional registrado."}
 `;
 
-    // 5. Llamada a OpenRouter API (Gemini 2.5 Flash)
-    const openrouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-        "X-Title": "SOVOGIN Assistant",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message },
-        ],
-        max_tokens: 2048,
-      }),
-    });
+    // 5. Llamada a OpenRouter API (Gemini 2.5 Flash) con reintentos de red
+    const { ok, responseText, error: llmError } = await callOpenRouterWithRetry(
+      OPENROUTER_API_KEY,
+      systemPrompt,
+      message,
+      2
+    );
 
-    const data = await openrouterRes.json().catch(() => ({}));
-    const responseText = data.choices?.[0]?.message?.content;
-
-    if (!openrouterRes.ok || !responseText) {
-      console.error(
-        "OpenRouter API Error:",
-        data.error?.message || "No content returned from OpenRouter"
-      );
+    if (!ok || !responseText) {
+      console.error("OpenRouter API Error:", llmError || "No content returned from OpenRouter");
       return NextResponse.json(
         { error: "No pudimos generar una respuesta en este momento. Por favor intenta nuevamente." },
         { status: 500 }
