@@ -2,7 +2,23 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { Search, Plus, Loader2, Edit2, Trash2, FileText, UserCheck, Mail, CheckCircle2 } from "lucide-react";
+import {
+  Search,
+  Plus,
+  Loader2,
+  Edit2,
+  Trash2,
+  FileText,
+  UserCheck,
+  Mail,
+  CheckCircle2,
+  Send,
+  CheckSquare,
+  Square,
+  AlertCircle,
+  MailCheck,
+  CreditCard,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/utils/supabase/client";
@@ -11,6 +27,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -26,6 +44,7 @@ import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
 import { listDirectoryProfileSummaries } from "@/lib/directory/directory-repository";
 import { AssociateDirectoryProfileSummary } from "@/lib/directory/types";
+import { BulkInviteResponse } from "@/app/api/admin/associates/bulk-invite/route";
 
 interface Associate {
   id: string;
@@ -67,43 +86,25 @@ export default function MembersAdmin() {
     Record<string, AssociateDirectoryProfileSummary>
   >({});
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [invitingId, setInvitingId] = useState<string | null>(null);
+
+  // Bulk invite states
+  const [isBulkInviting, setIsBulkInviting] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkInviteResponse | null>(null);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+
+  // Post import state
+  const [postImportCount, setPostImportCount] = useState<number | null>(null);
+  const [isPostImportModalOpen, setIsPostImportModalOpen] = useState(false);
+
   const supabase = useMemo(() => createClient(), []);
-
-  const handleInviteAssociate = async (associate: Associate) => {
-    try {
-      setInvitingId(associate.id);
-      const res = await fetch(`/api/admin/associates/${associate.id}/invite`, {
-        method: "POST",
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        alert(data.error || "No se pudo enviar la invitación al portal.");
-        return;
-      }
-
-      alert(data.message || "Invitación enviada exitosamente.");
-      void fetchAssociates();
-    } catch (err: unknown) {
-      console.error("Error al invitar asociado:", err);
-      alert("Error al conectar con el servidor.");
-    } finally {
-      setInvitingId(null);
-    }
-  };
-
-  const [formData, setFormData] = useState<AssociateFormData>({
-    full_name: "",
-    email: "",
-    status: "Activo",
-    specialty: "",
-    document_number: "",
-  });
 
   const fetchAssociates = useCallback(async () => {
     try {
@@ -169,6 +170,112 @@ export default function MembersAdmin() {
     };
   }, [supabase]);
 
+  // Filtered associates list
+  const filteredAssociates = useMemo(() => {
+    if (!searchTerm.trim()) return associates;
+    const term = searchTerm.toLowerCase().trim();
+    return associates.filter(
+      (a) =>
+        a.full_name.toLowerCase().includes(term) ||
+        a.email.toLowerCase().includes(term) ||
+        (a.document_number && a.document_number.toLowerCase().includes(term)) ||
+        (a.specialty && a.specialty.toLowerCase().includes(term))
+    );
+  }, [associates, searchTerm]);
+
+  // Selection handlers
+  const isAllVisibleSelected = useMemo(() => {
+    if (filteredAssociates.length === 0) return false;
+    return filteredAssociates.every((a) => selectedIds.includes(a.id));
+  }, [filteredAssociates, selectedIds]);
+
+  const toggleSelectAllVisible = () => {
+    if (isAllVisibleSelected) {
+      const visibleIdSet = new Set(filteredAssociates.map((a) => a.id));
+      setSelectedIds(selectedIds.filter((id) => !visibleIdSet.has(id)));
+    } else {
+      const visibleIdSet = new Set(filteredAssociates.map((a) => a.id));
+      const combined = new Set([...selectedIds, ...visibleIdSet]);
+      setSelectedIds(Array.from(combined));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  // Single associate invitation
+  const handleInviteAssociate = async (associate: Associate) => {
+    try {
+      setInvitingId(associate.id);
+      const res = await fetch(`/api/admin/associates/${associate.id}/invite`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert(data.error || "No se pudo enviar la invitación al portal.");
+        return;
+      }
+
+      alert(data.message || "Invitación enviada exitosamente.");
+      void fetchAssociates();
+    } catch (err: unknown) {
+      console.error("Error al invitar asociado:", err);
+      alert("Error al conectar con el servidor.");
+    } finally {
+      setInvitingId(null);
+    }
+  };
+
+  // Bulk portal invitation handler
+  const handleBulkInvite = async (options: {
+    associateIds?: string[];
+    inviteAllUnlinked?: boolean;
+  }) => {
+    try {
+      setIsBulkInviting(true);
+      const res = await fetch("/api/admin/associates/bulk-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options),
+      });
+
+      const data: BulkInviteResponse = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert((data as unknown as { error?: string }).error || "Error al procesar invitaciones masivas.");
+        return;
+      }
+
+      setBulkResult(data);
+      setIsBulkModalOpen(true);
+      if (options.associateIds) {
+        setSelectedIds([]);
+      }
+      void fetchAssociates();
+    } catch (err: unknown) {
+      console.error("Error en invitación masiva:", err);
+      alert("Ocurrió un error inesperado al conectar con el servidor.");
+    } finally {
+      setIsBulkInviting(false);
+    }
+  };
+
+  const [formData, setFormData] = useState<AssociateFormData>({
+    full_name: "",
+    email: "",
+    status: "Activo",
+    specialty: "",
+    document_number: "",
+  });
+
   function openCreateModal() {
     setEditingId(null);
     setFormData({
@@ -194,7 +301,7 @@ export default function MembersAdmin() {
   }
 
   async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files) return;
+    if (!e.target.files || e.target.files.length === 0) return;
 
     setUploading(true);
     const file = e.target.files[0];
@@ -260,7 +367,8 @@ export default function MembersAdmin() {
         if (error) {
           alert("Error de base de datos: " + error.message);
         } else {
-          alert(`Se procesaron ${uniqueAttendees.length} asociados correctamente.`);
+          setPostImportCount(uniqueAttendees.length);
+          setIsPostImportModalOpen(true);
           void fetchAssociates();
         }
       } catch (err: unknown) {
@@ -270,6 +378,7 @@ export default function MembersAdmin() {
         );
       } finally {
         setUploading(false);
+        e.target.value = "";
       }
     };
 
@@ -283,6 +392,7 @@ export default function MembersAdmin() {
       "Correo Electrónico": a.email,
       Especialidad: a.specialty || "",
       Estado: a.status,
+      "Acceso Portal": a.user_id ? "Cuenta vinculada" : "Sin acceso al Portal",
       "Fecha de Registro": new Date(a.created_at).toLocaleDateString(),
     }));
 
@@ -333,26 +443,45 @@ export default function MembersAdmin() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      {/* Header & Main Actions */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 font-heading">
             Gestión de Asociados
           </h1>
           <p className="text-slate-500">
-            Administra los médicos vinculados a SOVOGIN y sus perfiles del directorio publicable.
+            Administra los médicos vinculados a SOVOGIN, invitaciones al Portal y perfiles del directorio médico.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
+          {/* Action: Invite All Unlinked */}
+          <Button
+            onClick={() => handleBulkInvite({ inviteAllUnlinked: true })}
+            disabled={isBulkInviting}
+            variant="outline"
+            className="h-12 px-5 rounded-xl border-[#006666]/30 text-[#006666] bg-[#006666]/5 hover:bg-[#006666]/10 gap-2 font-bold shadow-xs"
+            title="Envía la invitación al portal a todos los asociados activos que nunca han tenido cuenta vinculada"
+          >
+            {isBulkInviting ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[#006666]" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+            <span>Invitar todos sin cuenta</span>
+          </Button>
+
+          {/* Export Excel */}
           <Button
             onClick={exportToExcel}
             variant="outline"
-            className="h-12 px-6 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 gap-2 font-bold shadow-sm"
+            className="h-12 px-5 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 gap-2 font-bold shadow-xs"
           >
             <FileText className="w-5 h-5" />
             Exportar Excel
           </Button>
 
+          {/* Import Excel */}
           <div className="relative">
             <input
               type="file"
@@ -364,7 +493,7 @@ export default function MembersAdmin() {
             <label
               htmlFor="member-excel-upload"
               className={cn(
-                "flex items-center justify-center gap-2 h-12 px-6 rounded-xl bg-emerald-500 text-white font-bold text-sm cursor-pointer hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-200",
+                "flex items-center justify-center gap-2 h-12 px-5 rounded-xl bg-emerald-600 text-white font-bold text-sm cursor-pointer hover:bg-emerald-700 transition-all shadow-md shadow-emerald-200",
                 uploading && "opacity-50 cursor-not-allowed"
               )}
             >
@@ -376,11 +505,12 @@ export default function MembersAdmin() {
             </label>
           </div>
 
+          {/* Create Associate Modal */}
           <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
             <Button
               type="button"
               onClick={openCreateModal}
-              className="bg-primary hover:bg-primary/90 h-12 px-6 rounded-xl shadow-lg shadow-primary/20 gap-2 font-bold"
+              className="bg-primary hover:bg-primary/90 h-12 px-5 rounded-xl shadow-md shadow-primary/20 gap-2 font-bold"
             >
               <Plus className="w-5 h-5" />
               Nuevo Asociado
@@ -461,16 +591,49 @@ export default function MembersAdmin() {
         </div>
       </div>
 
-      <div className="flex gap-4">
+      {/* Search Bar & Selection Toolbar */}
+      <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <Input
-            placeholder="Buscar por nombre o email..."
-            className="pl-12 h-12 rounded-xl border-slate-200"
+            placeholder="Buscar por nombre, email, cédula o especialidad..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-12 h-12 rounded-xl border-slate-200 bg-white"
           />
         </div>
+
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-3 bg-[#006666]/10 p-2 px-4 rounded-xl border border-[#006666]/20">
+            <span className="text-xs font-bold text-[#006666]">
+              {selectedIds.length} seleccionado(s)
+            </span>
+            <Button
+              size="sm"
+              onClick={() => handleBulkInvite({ associateIds: selectedIds })}
+              disabled={isBulkInviting}
+              className="h-9 px-3 bg-[#006666] hover:bg-[#004d4d] text-white text-xs font-bold rounded-lg gap-1.5"
+            >
+              {isBulkInviting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <MailCheck className="w-3.5 h-3.5" />
+              )}
+              <span>Invitar seleccionados</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearSelection}
+              className="h-9 text-xs text-slate-500 hover:text-slate-800"
+            >
+              Limpiar
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Table Container */}
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />
@@ -480,35 +643,63 @@ export default function MembersAdmin() {
           <Table>
             <TableHeader className="bg-slate-50/50">
               <TableRow>
-                <TableHead className="pl-8 py-4">Nombre</TableHead>
+                <TableHead className="w-12 pl-6 py-4">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllVisible}
+                    className="text-slate-400 hover:text-slate-700 transition-colors"
+                    title={isAllVisibleSelected ? "Desmarcar visibles" : "Seleccionar visibles"}
+                  >
+                    {isAllVisibleSelected ? (
+                      <CheckSquare className="w-5 h-5 text-[#006666]" />
+                    ) : (
+                      <Square className="w-5 h-5" />
+                    )}
+                  </button>
+                </TableHead>
+                <TableHead className="py-4">Nombre</TableHead>
                 <TableHead>Documento</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Especialidad</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead>Estado Gremiat</TableHead>
+                <TableHead>Acceso Portal</TableHead>
                 <TableHead>Directorio Médico</TableHead>
                 <TableHead className="text-right pr-8">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {associates.map((associate) => {
+              {filteredAssociates.map((associate) => {
                 const dirSummary = directorySummaries[associate.id];
+                const isSelected = selectedIds.includes(associate.id);
 
                 return (
                   <TableRow
                     key={associate.id}
-                    className="hover:bg-slate-50 transition-colors"
+                    className={cn(
+                      "hover:bg-slate-50 transition-colors",
+                      isSelected && "bg-[#006666]/5 hover:bg-[#006666]/10"
+                    )}
                   >
-                    <TableCell className="font-bold pl-8 py-6">
+                    <TableCell className="pl-6 py-6">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectOne(associate.id)}
+                        className="text-slate-400 hover:text-slate-700 transition-colors"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="w-5 h-5 text-[#006666]" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
+                    </TableCell>
+                    <TableCell className="font-bold">
                       {associate.full_name}
                     </TableCell>
-                    <TableCell className="text-slate-500 font-medium">
+                    <TableCell className="text-slate-500 font-medium text-xs">
                       {associate.document_number || "-"}
                     </TableCell>
-                    <TableCell className="text-slate-500">
+                    <TableCell className="text-slate-500 text-xs">
                       {associate.email}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {associate.specialty}
                     </TableCell>
                     <TableCell>
                       <span
@@ -520,6 +711,19 @@ export default function MembersAdmin() {
                       >
                         {associate.status}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {associate.user_id ? (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Cuenta vinculada
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-amber-600" />
+                          Sin acceso al Portal
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {dirSummary ? (
@@ -568,8 +772,17 @@ export default function MembersAdmin() {
                           ) : (
                             <Mail className="w-3.5 h-3.5" />
                           )}
-                          <span>{associate.user_id ? "Portal Activo" : "Invitar"}</span>
+                          <span>{associate.user_id ? "Re-enviar" : "Invitar"}</span>
                         </Button>
+
+                        {/* Quick Action for Membership Ledger */}
+                        <Link
+                          href={`/admin/membresias/${associate.id}`}
+                          className="p-2 rounded-lg text-slate-400 hover:text-[#006666] hover:bg-[#006666]/10 transition-colors"
+                          title="Ver expediente contable y membresía"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                        </Link>
 
                         {/* Quick Action for Directory */}
                         <Link
@@ -609,13 +822,13 @@ export default function MembersAdmin() {
                   </TableRow>
                 );
               })}
-              {associates.length === 0 && (
+              {filteredAssociates.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="text-center py-12 text-slate-400 font-medium"
                   >
-                    No hay asociados registrados todavía.
+                    No se encontraron asociados con los criterios de búsqueda.
                   </TableCell>
                 </TableRow>
               )}
@@ -623,6 +836,127 @@ export default function MembersAdmin() {
           </Table>
         </div>
       )}
+
+      {/* Post-Import Modal */}
+      <Dialog open={isPostImportModalOpen} onOpenChange={setIsPostImportModalOpen}>
+        <DialogContent className="sm:max-w-[480px] rounded-[2rem] border-none shadow-2xl p-6">
+          <DialogHeader className="space-y-3 text-center">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl mx-auto flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <DialogTitle className="text-2xl font-bold font-heading text-slate-900">
+              Carga Masiva Exitosa
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 text-sm">
+              Se han procesado e importado correctamente <strong>{postImportCount}</strong> asociados desde el archivo Excel.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-3 text-xs text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <p>• Los asociados importados han quedado registrados en la base de datos.</p>
+            <p>• ¿Deseas enviarles las invitaciones para activar su cuenta en el Portal del Asociado ahora?</p>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsPostImportModalOpen(false)}
+              className="w-full sm:w-auto h-11 rounded-xl text-slate-600 font-semibold"
+            >
+              Más tarde
+            </Button>
+            <Button
+              onClick={() => {
+                setIsPostImportModalOpen(false);
+                void handleBulkInvite({ inviteAllUnlinked: true });
+              }}
+              className="w-full sm:w-auto h-11 rounded-xl bg-[#006666] hover:bg-[#004d4d] text-white font-bold gap-2"
+            >
+              <Send className="w-4 h-4" />
+              Enviar invitaciones al Portal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Invite Summary Modal */}
+      <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
+        <DialogContent className="sm:max-w-[550px] rounded-[2rem] border-none shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="space-y-2">
+            <div className="w-12 h-12 bg-[#006666]/10 text-[#006666] rounded-2xl flex items-center justify-center mb-2">
+              <MailCheck className="w-6 h-6" />
+            </div>
+            <DialogTitle className="text-2xl font-bold font-heading text-slate-900">
+              Resumen de Invitaciones Masivas
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 text-sm">
+              {bulkResult?.message || "Procesamiento de invitaciones al Portal completado."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkResult && (
+            <div className="space-y-4 pt-2">
+              {/* Stat Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-emerald-50 border border-emerald-100 p-3.5 rounded-xl text-center">
+                  <div className="text-2xl font-black text-emerald-700">{bulkResult.invited}</div>
+                  <div className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mt-1">
+                    Enviadas
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 p-3.5 rounded-xl text-center">
+                  <div className="text-2xl font-black text-blue-700">{bulkResult.already_linked}</div>
+                  <div className="text-[10px] font-bold text-blue-800 uppercase tracking-wider mt-1">
+                    Ya Vinculadas
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-100 p-3.5 rounded-xl text-center">
+                  <div className="text-2xl font-black text-amber-700">{bulkResult.missing_email + bulkResult.skipped_inactive}</div>
+                  <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mt-1">
+                    Omitidos
+                  </div>
+                </div>
+
+                <div className="bg-rose-50 border border-rose-100 p-3.5 rounded-xl text-center">
+                  <div className="text-2xl font-black text-rose-700">{bulkResult.errors.length}</div>
+                  <div className="text-[10px] font-bold text-rose-800 uppercase tracking-wider mt-1">
+                    Errores
+                  </div>
+                </div>
+              </div>
+
+              {/* Errors List if any */}
+              {bulkResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4" />
+                    Detalle de Errores ({bulkResult.errors.length})
+                  </h4>
+                  <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3 max-h-40 overflow-y-auto space-y-2 text-xs text-rose-900">
+                    {bulkResult.errors.map((err, idx) => (
+                      <div key={idx} className="border-b border-rose-200/60 pb-1.5 last:border-0 last:pb-0">
+                        <span className="font-bold">{err.email || err.associate_id}: </span>
+                        <span>{err.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="pt-4">
+            <Button
+              onClick={() => setIsBulkModalOpen(false)}
+              className="w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
+            >
+              Entendido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
