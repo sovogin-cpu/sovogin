@@ -1,23 +1,76 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Lock, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Lock, Loader2, AlertCircle, CheckCircle2, KeyRound } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function PortalActualizarPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [hasValidSession, setHasValidSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function verifyAuthSession() {
+      try {
+        const urlError = searchParams.get("error");
+        if (urlError) {
+          if (isMounted) {
+            setHasValidSession(false);
+            setCheckingSession(false);
+          }
+          return;
+        }
+
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (isMounted) {
+          if (session?.user) {
+            setHasValidSession(true);
+          } else {
+            setHasValidSession(false);
+          }
+          setCheckingSession(false);
+        }
+      } catch (err: unknown) {
+        console.error("Error al comprobar sesión:", err);
+        if (isMounted) {
+          setHasValidSession(false);
+          setCheckingSession(false);
+        }
+      }
+    }
+
+    void verifyAuthSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      if (session?.user) {
+        setHasValidSession(true);
+        setCheckingSession(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase, searchParams]);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +140,45 @@ export default function PortalActualizarPasswordPage() {
           </CardHeader>
 
           <CardContent className="px-8 pt-8 pb-12">
-            {success ? (
+            {checkingSession ? (
+              <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+                <Loader2 className="w-8 h-8 text-[#006666] animate-spin" />
+                <p className="text-xs text-slate-400 font-medium">
+                  Verificando enlace seguro y sesión del portal...
+                </p>
+              </div>
+            ) : !hasValidSession ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="space-y-6 text-center"
+              >
+                <div className="p-5 rounded-2xl bg-amber-950/40 border border-amber-800/60 flex flex-col items-center space-y-3 text-amber-200">
+                  <AlertCircle className="w-10 h-10 text-amber-400 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-base">Enlace No Válido o Expirado</p>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Este enlace de activación o recuperación ha expirado, ya fue utilizado o no posee una sesión activa.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Link href="/portal/recuperar-password">
+                    <Button className="w-full h-12 rounded-2xl bg-[#006666] hover:bg-[#005555] text-white font-bold text-sm shadow-xl gap-2">
+                      <KeyRound className="w-4 h-4" />
+                      Solicitar un Nuevo Enlace
+                    </Button>
+                  </Link>
+                  <Link
+                    href="/portal/login"
+                    className="block text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors pt-2"
+                  >
+                    ← Volver al inicio de sesión
+                  </Link>
+                </div>
+              </motion.div>
+            ) : success ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}

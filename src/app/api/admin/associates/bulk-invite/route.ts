@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     );
 
     const origin = request.nextUrl.origin;
-    const redirectToUrl = `${origin}/portal/actualizar-password`;
+    const redirectToUrl = `${origin}/auth/callback?next=/portal/actualizar-password`;
 
     let invitedCount = 0;
     let alreadyLinkedCount = 0;
