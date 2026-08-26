@@ -29,6 +29,17 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     alternates: {
       canonical: canonicalUrl,
     },
+    openGraph: {
+      title: `${doctor.display_name} - ${doctor.specialty} | SOVOGIN`,
+      description: `Perfil profesional de ${doctor.display_name}, especialista en ${doctor.specialty} en ${locationText}. Médico Asociado a SOVOGIN.`,
+      url: canonicalUrl,
+      type: "profile",
+    },
+    twitter: {
+      card: "summary",
+      title: `${doctor.display_name} - ${doctor.specialty} | SOVOGIN`,
+      description: `Perfil profesional de ${doctor.display_name}, especialista en ${doctor.specialty} en ${locationText}.`,
+    },
   };
 }
 

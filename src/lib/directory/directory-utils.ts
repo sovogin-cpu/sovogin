@@ -56,7 +56,11 @@ export function buildFullLocationString(
   country?: string | null
 ): string {
   const parts: string[] = [city];
-  if (department && department.trim() !== "") {
+  if (
+    department &&
+    department.trim() !== "" &&
+    department.trim().toLowerCase() !== city.trim().toLowerCase()
+  ) {
     parts.push(department.trim());
   }
   if (country && country.trim() !== "") {
