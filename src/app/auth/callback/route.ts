@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
 
 const ALLOWED_NEXT_PATHS = ["/portal/actualizar-password"] as const;
-const ALLOWED_OTP_TYPES: EmailOtpType[] = ["invite", "recovery", "email"];
 
 /**
  * GET /auth/callback
- * Handles PKCE authorization code exchange and OTP token verification for Supabase Auth.
- * Redirects to target page (/portal/actualizar-password) with cookies properly established.
+ * Handles PKCE authorization code exchange (?code=...) and redirects token_hash
+ * requests to the prefetch-safe landing page (/portal/activar-cuenta).
+ *
+ * CRITICAL: GET requests to this route NEVER execute verifyOtp() for token_hash,
+ * preventing email scanners from consuming single-use authentication tokens.
  */
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -17,7 +18,6 @@ export async function GET(request: NextRequest) {
   const typeParam = requestUrl.searchParams.get("type");
   const rawNext = requestUrl.searchParams.get("next");
 
-  // Strict Next Path Whitelist
   let nextPath = "/portal/actualizar-password";
   if (rawNext && typeof rawNext === "string") {
     const trimmed = rawNext.trim();
@@ -29,10 +29,9 @@ export async function GET(request: NextRequest) {
   const origin = requestUrl.origin;
 
   try {
-    const supabase = await createClient();
-
-    // 1. PKCE Code Exchange
+    // 1. PKCE Code Exchange (Standard OAuth / Server PKCE flow)
     if (code) {
+      const supabase = await createClient();
       const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
       if (exchangeError) {
@@ -45,32 +44,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${origin}${nextPath}`);
     }
 
-    // 2. Token Hash Verification (OTP / Magiclink / Recovery fallback)
-    if (tokenHash && typeParam) {
-      if (!ALLOWED_OTP_TYPES.includes(typeParam as EmailOtpType)) {
-        console.error("Tipo de OTP inválido o no permitido en callback:", typeParam);
-        return NextResponse.redirect(
-          `${origin}/portal/actualizar-password?error=invalid_type`
-        );
+    // 2. Prefetch-Safe Redirection for token_hash
+    // If token_hash arrives via GET (e.g. legacy links or external redirects),
+    // redirect to /portal/activar-cuenta landing page WITHOUT consuming the token!
+    if (tokenHash) {
+      const landingUrl = new URL("/portal/activar-cuenta", origin);
+      landingUrl.searchParams.set("token_hash", tokenHash);
+      if (typeParam) {
+        landingUrl.searchParams.set("type", typeParam);
       }
-
-      const otpType = typeParam as EmailOtpType;
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: otpType,
-      });
-
-      if (verifyError) {
-        console.error("Error al verificar token hash OTP:", verifyError.message);
-        return NextResponse.redirect(
-          `${origin}/portal/actualizar-password?error=verify_failed`
-        );
-      }
-
-      return NextResponse.redirect(`${origin}${nextPath}`);
+      return NextResponse.redirect(landingUrl.toString(), { status: 302 });
     }
 
-    // 3. Fallback: No code or token_hash supplied
+    // 3. Fallback: Neither code nor token_hash supplied
     return NextResponse.redirect(`${origin}/portal/actualizar-password?error=missing_code`);
   } catch (err: unknown) {
     console.error("Excepción en GET /auth/callback:", err);
