@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, User, LogIn } from "lucide-react";
+import { Menu, X, ChevronDown, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -39,7 +39,6 @@ export interface NavbarProps {
 export function Navbar({ settings }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const pathname = usePathname();
 
   const brandName = settings?.name || "SOVOGIN";
@@ -48,34 +47,12 @@ export function Navbar({ settings }: NavbarProps) {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
     };
-    
-    const checkLogin = () => {
-      const access = sessionStorage.getItem("member_access");
-      setIsLoggedIn(access === "granted");
-    };
 
     window.addEventListener("scroll", handleScroll);
-    checkLogin();
-    
-    // Listen for storage changes (for multiple tabs or manual logout)
-    window.addEventListener("storage", checkLogin);
-    
-    // Custom event for same-window updates
-    window.addEventListener("member-login-change", checkLogin);
-
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("storage", checkLogin);
-      window.removeEventListener("member-login-change", checkLogin);
     };
   }, []);
-
-  const handleLogout = () => {
-    sessionStorage.removeItem("member_access");
-    setIsLoggedIn(false);
-    window.dispatchEvent(new Event("member-login-change"));
-    window.location.reload(); // Refresh to clear states in other pages
-  };
 
   return (
     <nav
@@ -130,19 +107,12 @@ export function Navbar({ settings }: NavbarProps) {
         </div>
 
         <div className="hidden md:flex items-center gap-3">
-          {isLoggedIn ? (
-            <Button onClick={handleLogout} variant="ghost" size="sm" className="gap-2 text-red-500 hover:text-red-600 font-bold hover:bg-red-50">
-              <User className="w-4 h-4" />
-              Cerrar Sesión
+          <Link href="/portal">
+            <Button variant="ghost" size="sm" className="gap-2 text-slate-700 hover:text-primary font-bold">
+              <User className="w-4 h-4 text-[#006666]" />
+              Portal del Asociado
             </Button>
-          ) : (
-            <Link href="/admin/login">
-              <Button variant="ghost" size="sm" className="gap-2 text-slate-600 font-bold">
-                <LogIn className="w-4 h-4" />
-                Ingresar
-              </Button>
-            </Link>
-          )}
+          </Link>
           <Link href="/asociarse">
             <Button size="sm" className="bg-secondary hover:bg-secondary/90 text-slate-900 font-bold border-none shadow-md px-6">
               Asociarse
@@ -195,15 +165,12 @@ export function Navbar({ settings }: NavbarProps) {
                 </div>
               ))}
               <div className="pt-4 border-t flex flex-col gap-3">
-                {isLoggedIn ? (
-                  <Button onClick={handleLogout} variant="outline" className="w-full h-12 text-red-500 font-bold border-red-100 bg-red-50">
-                    Cerrar Sesión
+                <Link href="/portal" onClick={() => setIsOpen(false)}>
+                  <Button variant="outline" className="w-full h-12 text-slate-700 font-bold flex items-center justify-center gap-2">
+                    <User className="w-4 h-4 text-[#006666]" />
+                    Portal del Asociado
                   </Button>
-                ) : (
-                  <Link href="/admin/login" onClick={() => setIsOpen(false)}>
-                    <Button variant="outline" className="w-full h-12 text-slate-600 font-bold">Ingresar</Button>
-                  </Link>
-                )}
+                </Link>
                 <Link href="/asociarse" onClick={() => setIsOpen(false)}>
                   <Button className="w-full bg-primary h-12 font-bold">Asociarse</Button>
                 </Link>
