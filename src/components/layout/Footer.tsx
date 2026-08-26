@@ -56,7 +56,7 @@ export function Footer({ settings }: FooterProps) {
           <div>
             <h4 className="text-white font-bold mb-6">Para Miembros</h4>
             <ul className="space-y-3 text-sm">
-              <li><Link href="/recursos" className="hover:text-primary transition-colors">Portal de Miembros</Link></li>
+              <li><Link href="/portal" className="hover:text-primary transition-colors">Portal del Asociado</Link></li>
               <li><Link href="/asociarse" className="hover:text-primary transition-colors">Requisitos de Admisión</Link></li>
               <li><Link href="/asociarse" className="hover:text-primary transition-colors">Beneficios de Asociado</Link></li>
               <li><Link href="/recursos" className="hover:text-primary transition-colors">Descarga de Certificados</Link></li>
