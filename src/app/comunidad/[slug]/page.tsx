@@ -18,7 +18,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 
   const supabase = createClient();
-  const post = await getPublishedContentBySlug(supabase, "community", normalizedSlug);
+  let post = await getPublishedContentBySlug(supabase, "community", normalizedSlug);
+  if (!post) {
+    post = await getPublishedContentBySlug(supabase, "news", normalizedSlug);
+  }
 
   if (!post) {
     return {
@@ -41,7 +44,10 @@ export default async function ComunidadPostPage({ params }: PageProps) {
   }
 
   const supabase = createClient();
-  const post = await getPublishedContentBySlug(supabase, "community", normalizedSlug);
+  let post = await getPublishedContentBySlug(supabase, "community", normalizedSlug);
+  if (!post) {
+    post = await getPublishedContentBySlug(supabase, "news", normalizedSlug);
+  }
 
   if (!post) {
     notFound();

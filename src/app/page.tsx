@@ -1,11 +1,19 @@
 import { Hero } from "@/components/home/Hero";
 import { CommercialBenefitsSection } from "@/components/home/CommercialBenefitsSection";
+import { NewsSection } from "@/components/home/NewsSection";
 import { createClient } from "@/utils/supabase/server";
+import { listPublishedContent } from "@/lib/content/public-content-service";
 import Link from "next/link";
 
 export default async function Home() {
   const supabase = await createClient();
   
+  // Fetch News Posts
+  const newsResult = await listPublishedContent(supabase, {
+    channel: "news",
+    limit: 3,
+  }).catch(() => ({ posts: [], totalCount: 0 }));
+
   // Fetch Events
   const { data: events } = await supabase
     .from('events')
@@ -54,6 +62,9 @@ export default async function Home() {
           </div>
         </div>
       </section>
+
+      {/* News Section */}
+      <NewsSection posts={newsResult.posts} />
 
       {/* Featured Symposium Preview */}
       <section className="py-24 bg-slate-50">

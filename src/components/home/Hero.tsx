@@ -38,7 +38,7 @@ export function Hero() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-6xl md:text-9xl font-bold text-white leading-[0.9] tracking-tighter"
           >
-            Liderando el futuro de la <span className="text-primary">Ginecología y Obstetricia</span>
+            Liderando el futuro de la <span className="text-primary">Obstetricia y Ginecología</span>
           </motion.h1>
           
           <motion.p

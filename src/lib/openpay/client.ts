@@ -27,6 +27,20 @@ export type OpenpayChargeResponse = {
   };
 };
 
+/**
+ * Determina la URL base de la API de Openpay.
+ * Regla de seguridad estricta (Fuente de Verdad Única):
+ * Solo activa Producción cuando OPENPAY_SANDBOX es la cadena exacta "false".
+ * Ante cualquier otro valor, variable ausente o indefinida, el entorno por defecto permanece en Sandbox.
+ */
+export function resolveOpenpayApiUrl(envRecord?: Record<string, string | undefined>): string {
+  const envVars = envRecord || process.env;
+  const isProduction = envVars.OPENPAY_SANDBOX === "false";
+  return isProduction
+    ? "https://api.openpay.co"
+    : "https://sandbox-api.openpay.co";
+}
+
 function getOpenpayConfiguration() {
   if (typeof window !== "undefined") {
     throw new Error("createOpenpayRedirectCharge solo puede ejecutarse del lado servidor.");
@@ -34,10 +48,7 @@ function getOpenpayConfiguration() {
 
   const merchantId = process.env.OPENPAY_MERCHANT_ID;
   const privateKey = process.env.OPENPAY_PRIVATE_KEY;
-
-  const apiUrl =
-    process.env.OPENPAY_API_URL ||
-    "https://sandbox-api.openpay.co";
+  const apiUrl = resolveOpenpayApiUrl();
 
   if (!merchantId) {
     throw new Error(
