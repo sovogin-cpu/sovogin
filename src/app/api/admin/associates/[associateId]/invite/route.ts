@@ -77,6 +77,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const origin = request.nextUrl.origin;
     const redirectToUrl = `${origin}/auth/callback?next=/portal/actualizar-password`;
 
+    const buildActivationLandingUrl = (
+      tokenHash: string,
+      linkType: "invite" | "recovery"
+    ): string => {
+      const url = new URL("/portal/activar-cuenta", origin);
+      url.searchParams.set("token_hash", tokenHash);
+      url.searchParams.set("type", linkType);
+      return url.toString();
+    };
+
     // 4. Si el asociado ya tiene user_id vinculado (Re-envío / Recuperación de acceso)
     if (associate.user_id) {
       const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
@@ -87,15 +97,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       });
 
-      if (linkError) {
+      const hashedToken = linkData?.properties?.hashed_token;
+
+      if (linkError || !hashedToken) {
         console.error("Error generando enlace de recuperación:", linkError);
         return NextResponse.json(
-          { error: linkError.message || "Fallo al generar el enlace de recuperación." },
+          { error: linkError?.message || "No fue posible generar un enlace seguro de activación." },
           { status: 500 }
         );
       }
 
-      const activationLink = linkData?.properties?.action_link || `${origin}/portal/login`;
+      const activationLink = buildActivationLandingUrl(hashedToken, "recovery");
 
       const emailResult = await sendAssociateInviteEmail({
         associateName: associate.full_name,
@@ -157,15 +169,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       });
 
-      if (linkError) {
+      const hashedToken = linkData?.properties?.hashed_token;
+
+      if (linkError || !hashedToken) {
         console.error("Error generando enlace de recuperación para usuario existente:", linkError);
         return NextResponse.json(
-          { error: linkError.message || "Fallo al generar enlace de acceso." },
+          { error: linkError?.message || "No fue posible generar un enlace seguro de activación." },
           { status: 500 }
         );
       }
 
-      activationLink = linkData?.properties?.action_link || `${origin}/portal/login`;
+      activationLink = buildActivationLandingUrl(hashedToken, "recovery");
     } else {
       // CASO A: Cuenta Auth Nueva (Primera invitación formal)
       // Supabase Auth generateLink({ type: "invite" }) crea el usuario y retorna el enlace de invitación inicial.
@@ -180,16 +194,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       });
 
-      if (inviteError || !inviteData?.user) {
+      const hashedToken = inviteData?.properties?.hashed_token;
+
+      if (inviteError || !inviteData?.user || !hashedToken) {
         console.error("Error generando enlace de invitación inicial:", inviteError);
         return NextResponse.json(
-          { error: inviteError?.message || "Fallo al generar la invitación inicial del asociado." },
+          { error: inviteError?.message || "No fue posible generar un enlace seguro de activación." },
           { status: 400 }
         );
       }
 
       authUserId = inviteData.user.id;
-      activationLink = inviteData.properties?.action_link || `${origin}/portal/login`;
+      activationLink = buildActivationLandingUrl(hashedToken, "invite");
     }
 
     // 6. Vincular de forma atómica associates.user_id = authUserId

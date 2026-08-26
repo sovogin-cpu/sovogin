@@ -137,6 +137,16 @@ export async function POST(request: NextRequest) {
     const origin = request.nextUrl.origin;
     const redirectToUrl = `${origin}/auth/callback?next=/portal/actualizar-password`;
 
+    const buildActivationLandingUrl = (
+      tokenHash: string,
+      linkType: "invite" | "recovery"
+    ): string => {
+      const url = new URL("/portal/activar-cuenta", origin);
+      url.searchParams.set("token_hash", tokenHash);
+      url.searchParams.set("type", linkType);
+      return url.toString();
+    };
+
     let invitedCount = 0;
     let alreadyLinkedCount = 0;
     let skippedInactiveCount = 0;
@@ -204,16 +214,18 @@ export async function POST(request: NextRequest) {
                   options: { redirectTo: redirectToUrl },
                 });
 
-              if (linkError || !linkData?.properties?.action_link) {
+              const hashedToken = linkData?.properties?.hashed_token;
+
+              if (linkError || !hashedToken) {
                 errors.push({
                   associate_id: assoc.id,
                   email: cleanEmail,
-                  error: linkError?.message || "Fallo al generar enlace de recuperación.",
+                  error: linkError?.message || "No fue posible generar un enlace seguro de activación.",
                 });
                 return;
               }
 
-              activationLink = linkData.properties.action_link;
+              activationLink = buildActivationLandingUrl(hashedToken, "recovery");
             } else {
               // Primera invitación formal (Auth User nuevo)
               const { data: inviteData, error: inviteError } =
@@ -226,17 +238,19 @@ export async function POST(request: NextRequest) {
                   },
                 });
 
-              if (inviteError || !inviteData?.user || !inviteData?.properties?.action_link) {
+              const hashedToken = inviteData?.properties?.hashed_token;
+
+              if (inviteError || !inviteData?.user || !hashedToken) {
                 errors.push({
                   associate_id: assoc.id,
                   email: cleanEmail,
-                  error: inviteError?.message || "Fallo al generar enlace de invitación.",
+                  error: inviteError?.message || "No fue posible generar un enlace seguro de activación.",
                 });
                 return;
               }
 
               authUserId = inviteData.user.id;
-              activationLink = inviteData.properties.action_link;
+              activationLink = buildActivationLandingUrl(hashedToken, "invite");
 
               // Actualizar el mapa de Auth users para prevenir colisión si el mismo email aparece de nuevo
               authUsersByEmail.set(cleanEmail, inviteData.user);
