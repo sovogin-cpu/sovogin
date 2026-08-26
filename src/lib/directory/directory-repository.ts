@@ -4,24 +4,31 @@ import {
   AssociateDirectoryProfileSummary,
   DoctorDirectoryAdminProfile,
   DoctorDirectoryFilters,
+  DoctorDirectoryPaginatedResult,
   DoctorDirectoryProfilePublic,
   DoctorProfileFormData,
 } from "./types";
-import { createDoctorSlug, normalizeWebsiteUrl } from "./directory-utils";
+import { createDoctorSlug, isUUID, normalizeWebsiteUrl, sanitizePostgrestSearchTerm } from "./directory-utils";
 
 /**
- * List published doctor directory profiles for public frontend.
+ * List published doctor directory profiles with server-side pagination and total count.
  * Mandatory filters: is_published = true AND consent_given_at IS NOT NULL.
  * Order: display_order ASC, display_name ASC.
  */
-export async function listPublishedDoctors(
+export async function listPublishedDoctorsPaginated(
   supabase: SupabaseClient,
   filters?: DoctorDirectoryFilters
-): Promise<DoctorDirectoryProfilePublic[]> {
+): Promise<DoctorDirectoryPaginatedResult> {
+  const page = Math.max(1, filters?.page || 1);
+  const pageSize = Math.min(50, Math.max(1, filters?.pageSize || 12));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   let query = supabase
     .from("doctor_directory_profiles")
     .select(
-      "id, display_name, slug, specialty, subspecialty, country, department, city, clinic_name, public_phone, whatsapp_phone, public_email, office_address, profile_media_id, bio, website_url, social_links, telemedicine_available, is_verified, consent_given_at, is_published, display_order, created_at, updated_at"
+      "id, display_name, slug, specialty, subspecialty, country, department, city, clinic_name, public_phone, whatsapp_phone, public_email, office_address, profile_media_id, bio, website_url, social_links, telemedicine_available, is_verified, consent_given_at, is_published, display_order, created_at, updated_at",
+      { count: "exact" }
     )
     .eq("is_published", true)
     .not("consent_given_at", "is", null);
@@ -47,20 +54,50 @@ export async function listPublishedDoctors(
   }
 
   if (filters?.search && filters.search.trim() !== "") {
-    const term = `%${filters.search.trim()}%`;
-    query = query.or(
-      `display_name.ilike.${term},specialty.ilike.${term},subspecialty.ilike.${term},city.ilike.${term},clinic_name.ilike.${term}`
-    );
+    const sanitized = sanitizePostgrestSearchTerm(filters.search);
+    if (sanitized !== "") {
+      const term = `%${sanitized}%`;
+      query = query.or(
+        `display_name.ilike.${term},specialty.ilike.${term},subspecialty.ilike.${term},city.ilike.${term},clinic_name.ilike.${term}`
+      );
+    }
   }
 
   query = query
     .order("display_order", { ascending: true })
-    .order("display_name", { ascending: true });
+    .order("display_name", { ascending: true })
+    .range(from, to);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
-  return (data as DoctorDirectoryProfilePublic[]) || [];
+  const totalCount = count || 0;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+  return {
+    doctors: (data as DoctorDirectoryProfilePublic[]) || [],
+    totalCount,
+    page,
+    pageSize,
+    totalPages,
+  };
+}
+
+/**
+ * List published doctor directory profiles for public frontend.
+ * Mandatory filters: is_published = true AND consent_given_at IS NOT NULL.
+ * Order: display_order ASC, display_name ASC.
+ */
+export async function listPublishedDoctors(
+  supabase: SupabaseClient,
+  filters?: DoctorDirectoryFilters
+): Promise<DoctorDirectoryProfilePublic[]> {
+  const result = await listPublishedDoctorsPaginated(supabase, {
+    ...filters,
+    page: 1,
+    pageSize: 500,
+  });
+  return result.doctors;
 }
 
 /**
@@ -106,6 +143,22 @@ export async function getPublishedDoctorBySlug(
 }
 
 /**
+ * Unified resolver to fetch a published doctor profile by either UUID or URL slug.
+ */
+export async function getPublishedDoctorProfile(
+  supabase: SupabaseClient,
+  identifier: string
+): Promise<DoctorDirectoryProfilePublic | null> {
+  if (!identifier || identifier.trim() === "") return null;
+  const trimmed = identifier.trim();
+
+  if (isUUID(trimmed)) {
+    return getPublishedDoctorById(supabase, trimmed);
+  }
+  return getPublishedDoctorBySlug(supabase, trimmed);
+}
+
+/**
  * List distinct specialties from published profiles with consent.
  */
 export async function listDoctorSpecialties(
@@ -129,6 +182,31 @@ export async function listDoctorSpecialties(
 }
 
 /**
+ * List distinct departments from published profiles with consent.
+ */
+export async function listDoctorDepartments(
+  supabase: SupabaseClient
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("doctor_directory_profiles")
+    .select("department")
+    .eq("is_published", true)
+    .not("consent_given_at", "is", null);
+
+  if (error) throw error;
+  if (!data) return [];
+
+  const set = new Set<string>();
+  data.forEach((item: { department?: string | null }) => {
+    if (item.department && item.department.trim() !== "") {
+      set.add(item.department.trim());
+    }
+  });
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * List distinct cities from published profiles with consent.
  */
 export async function listDoctorCities(
@@ -146,6 +224,31 @@ export async function listDoctorCities(
   const set = new Set<string>();
   data.forEach((item: { city: string }) => {
     if (item.city) set.add(item.city);
+  });
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * List distinct countries from published profiles with consent.
+ */
+export async function listDoctorCountries(
+  supabase: SupabaseClient
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("doctor_directory_profiles")
+    .select("country")
+    .eq("is_published", true)
+    .not("consent_given_at", "is", null);
+
+  if (error) throw error;
+  if (!data) return [];
+
+  const set = new Set<string>();
+  data.forEach((item: { country?: string | null }) => {
+    if (item.country && item.country.trim() !== "") {
+      set.add(item.country.trim());
+    }
   });
 
   return Array.from(set).sort((a, b) => a.localeCompare(b));

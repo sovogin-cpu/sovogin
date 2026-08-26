@@ -9,9 +9,14 @@ import {
   Mail,
   Globe,
   Video,
+  ShieldCheck,
+  Building2,
+  MessageSquare,
 } from "lucide-react";
 import { DoctorDirectoryProfilePublic } from "@/lib/directory/types";
 import {
+  buildFullLocationString,
+  buildWhatsAppUrl,
   formatDoctorSpecialty,
   isSafePublicEmail,
   isSafePublicPhone,
@@ -26,7 +31,12 @@ interface DoctorProfilePageProps {
 export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) => {
   const safeEmail = isSafePublicEmail(doctor.public_email) ? doctor.public_email : null;
   const safePhone = isSafePublicPhone(doctor.public_phone) ? doctor.public_phone : null;
+  const safeWhatsApp = buildWhatsAppUrl(doctor.whatsapp_phone);
   const safeWebsite = normalizeWebsiteUrl(doctor.website_url);
+  const locationString = buildFullLocationString(doctor.city, doctor.department, doctor.country);
+
+  const socialLinks = doctor.social_links || {};
+  const knownSocialKeys = ["linkedin", "instagram", "facebook", "researchgate"] as const;
 
   return (
     <div className="min-h-screen bg-slate-50/50 pt-28 pb-20">
@@ -78,6 +88,13 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
                     <span>Telemedicina disponible</span>
                   </span>
                 )}
+
+                {doctor.is_verified && (
+                  <span className="px-3 py-1 bg-teal-700 text-white text-xs font-bold rounded-full flex items-center gap-1 shadow-xs">
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-200" />
+                    <span>Verificado por SOVOGIN</span>
+                  </span>
+                )}
               </div>
 
               <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -90,26 +107,46 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
               </div>
             </div>
 
-            {/* City & Office Address */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                <MapPin className="w-4 h-4 text-rose-600" />
-                <span>{doctor.city}</span>
+            {/* Institution & Address */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+              {doctor.clinic_name && (
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Building2 className="w-4 h-4 text-[#006666]" />
+                  <span>{doctor.clinic_name}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                <MapPin className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{locationString}</span>
               </div>
+
               {doctor.office_address && (
-                <p className="text-xs text-slate-600 pl-6">
+                <p className="text-xs text-slate-600 pl-6 leading-relaxed">
                   {doctor.office_address}
                 </p>
               )}
             </div>
 
             {/* Public Contact Channels */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
+            <div className="space-y-3 pt-2 border-t border-slate-100">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 Contacto Profesional Público
               </h3>
 
-              <div className="flex flex-wrap gap-3 pt-1">
+              <div className="flex flex-wrap gap-3">
+                {safeWhatsApp && (
+                  <a
+                    href={safeWhatsApp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors shadow-xs"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Contactar por WhatsApp</span>
+                  </a>
+                )}
+
                 {safePhone && (
                   <a
                     href={`tel:${safePhone.replace(/\s+/g, "")}`}
@@ -142,6 +179,40 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
                   </a>
                 )}
               </div>
+
+              {/* Professional Social Links */}
+              {knownSocialKeys.some((k) => socialLinks[k] && socialLinks[k]!.trim() !== "") && (
+                <div className="pt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                    Redes Profesionales:
+                  </span>
+                  {knownSocialKeys.map((key) => {
+                    const url = socialLinks[key];
+                    if (!url || url.trim() === "") return null;
+                    const safeUrl = normalizeWebsiteUrl(url);
+                    if (!safeUrl) return null;
+
+                    const labelMap: Record<string, string> = {
+                      linkedin: "LinkedIn",
+                      instagram: "Instagram",
+                      facebook: "Facebook",
+                      researchgate: "ResearchGate",
+                    };
+
+                    return (
+                      <a
+                        key={key}
+                        href={safeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-200 transition-colors capitalize"
+                      >
+                        {labelMap[key] || key}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

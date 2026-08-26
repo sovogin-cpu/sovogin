@@ -41,6 +41,16 @@ export interface DoctorDirectoryFilters {
   country?: string;
   department?: string;
   telemedicineAvailable?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface DoctorDirectoryPaginatedResult {
+  doctors: DoctorDirectoryProfilePublic[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface DoctorDirectoryProfilePublic {
