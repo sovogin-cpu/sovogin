@@ -36,7 +36,7 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
   const locationString = buildFullLocationString(doctor.city, doctor.department, doctor.country);
 
   const socialLinks = doctor.social_links || {};
-  const knownSocialKeys = ["linkedin", "instagram", "facebook", "researchgate"] as const;
+  const knownSocialKeys = ["linkedin", "instagram", "facebook", "tiktok", "researchgate"] as const;
 
   const validSocialLinks = knownSocialKeys
     .map((key) => {
@@ -218,6 +218,7 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
                         linkedin: "LinkedIn",
                         instagram: "Instagram",
                         facebook: "Facebook",
+                        tiktok: "TikTok",
                         researchgate: "ResearchGate",
                       };
                       const label = labelMap[key] || key;

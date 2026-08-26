@@ -2,6 +2,7 @@ export interface DoctorSocialLinks {
   linkedin?: string;
   instagram?: string;
   facebook?: string;
+  tiktok?: string;
   researchgate?: string;
   [key: string]: string | undefined;
 }

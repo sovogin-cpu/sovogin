@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
     // Process social links safely if provided
     const socialLinksInput = body.social_links && typeof body.social_links === "object" ? body.social_links : {};
     const sanitizedSocialLinks: Record<string, string> = {};
-    const knownKeys = ["linkedin", "instagram", "facebook", "researchgate"];
+    const knownKeys = ["linkedin", "instagram", "facebook", "tiktok", "researchgate"];
     for (const k of knownKeys) {
       if (socialLinksInput[k] && typeof socialLinksInput[k] === "string" && socialLinksInput[k].trim() !== "") {
         const norm = normalizeWebsiteUrl(socialLinksInput[k]);
@@ -361,13 +361,23 @@ export async function PATCH(request: NextRequest) {
 
     if (body.social_links !== undefined) {
       const socialObj = body.social_links && typeof body.social_links === "object" ? body.social_links : {};
-      const sanitizedSocial: Record<string, string> = {};
-      const knownKeys = ["linkedin", "instagram", "facebook", "researchgate"];
+      const currentSocial = (currentProfile.social_links && typeof currentProfile.social_links === "object")
+        ? (currentProfile.social_links as Record<string, string>)
+        : {};
+      const sanitizedSocial: Record<string, string> = { ...currentSocial };
+      const knownKeys = ["linkedin", "instagram", "facebook", "tiktok", "researchgate"];
       for (const k of knownKeys) {
-        if (socialObj[k] && typeof socialObj[k] === "string" && socialObj[k].trim() !== "") {
-          const norm = normalizeWebsiteUrl(socialObj[k]);
-          if (norm) {
-            sanitizedSocial[k] = norm;
+        if (Object.prototype.hasOwnProperty.call(socialObj, k)) {
+          const val = socialObj[k];
+          if (typeof val === "string" && val.trim() !== "") {
+            const norm = normalizeWebsiteUrl(val);
+            if (norm) {
+              sanitizedSocial[k] = norm;
+            } else {
+              delete sanitizedSocial[k];
+            }
+          } else {
+            delete sanitizedSocial[k];
           }
         }
       }

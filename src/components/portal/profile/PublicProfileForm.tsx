@@ -25,6 +25,7 @@ export interface DoctorSocialLinksForm {
   linkedin?: string;
   instagram?: string;
   facebook?: string;
+  tiktok?: string;
   researchgate?: string;
 }
 
@@ -350,12 +351,12 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-slate-300 text-[11px] font-semibold">ResearchGate</Label>
+                <Label className="text-slate-300 text-[11px] font-semibold">TikTok</Label>
                 <Input
-                  name="social_researchgate"
-                  value={formData.social_links.researchgate || ""}
+                  name="social_tiktok"
+                  value={formData.social_links.tiktok || ""}
                   onChange={handleChange}
-                  placeholder="https://researchgate.net/profile/..."
+                  placeholder="https://www.tiktok.com/@usuario"
                   className="bg-slate-900 border-slate-800 text-white text-xs h-10"
                 />
               </div>
