@@ -21,15 +21,21 @@ interface DoctorProfile {
   id: string;
   associate_id: string;
   display_name: string;
+  slug?: string | null;
   specialty: string;
   subspecialty: string | null;
+  country?: string | null;
+  department?: string | null;
   city: string | null;
+  clinic_name?: string | null;
   public_phone: string | null;
+  whatsapp_phone?: string | null;
   public_email: string | null;
   office_address: string | null;
   profile_media_id: string | null;
   bio: string | null;
   website_url: string | null;
+  social_links?: Record<string, string> | null;
   telemedicine_available: boolean;
   consent_given_at: string | null;
   is_published: boolean;
@@ -51,13 +57,18 @@ export const ProfileManager: React.FC = () => {
     display_name: "",
     specialty: "Ginecología y Obstetricia",
     subspecialty: "",
+    country: "Colombia",
+    department: "",
     city: "",
+    clinic_name: "",
     public_phone: "",
+    whatsapp_phone: "",
     public_email: "",
     office_address: "",
     bio: "",
     website_url: "",
     telemedicine_available: false,
+    social_links: {},
     consentConfirmed: false,
     is_published: false,
   });
@@ -88,13 +99,18 @@ export const ProfileManager: React.FC = () => {
           display_name: p.display_name || data.associate.full_name || "",
           specialty: p.specialty || data.associate.specialty || "Ginecología y Obstetricia",
           subspecialty: p.subspecialty || "",
+          country: p.country || "Colombia",
+          department: p.department || "",
           city: p.city || "",
+          clinic_name: p.clinic_name || "",
           public_phone: p.public_phone || "",
+          whatsapp_phone: p.whatsapp_phone || "",
           public_email: p.public_email || data.associate.email || "",
           office_address: p.office_address || "",
           bio: p.bio || "",
           website_url: p.website_url || "",
           telemedicine_available: Boolean(p.telemedicine_available),
+          social_links: p.social_links || {},
           consentConfirmed: Boolean(p.consent_given_at),
           is_published: Boolean(p.is_published),
         });
@@ -104,6 +120,7 @@ export const ProfileManager: React.FC = () => {
           display_name: data.associate.full_name || "",
           public_email: data.associate.email || "",
           specialty: data.associate.specialty || "Ginecología y Obstetricia",
+          country: "Colombia",
           city: "",
         }));
       }
@@ -151,12 +168,17 @@ export const ProfileManager: React.FC = () => {
         display_name: formData.display_name,
         specialty: formData.specialty,
         subspecialty: formData.subspecialty,
+        country: formData.country,
+        department: formData.department,
         city: formData.city,
+        clinic_name: formData.clinic_name,
         public_phone: formData.public_phone,
+        whatsapp_phone: formData.whatsapp_phone,
         public_email: formData.public_email,
         office_address: formData.office_address,
         bio: formData.bio,
         website_url: formData.website_url,
+        social_links: formData.social_links,
         telemedicine_available: formData.telemedicine_available,
         consentConfirmed: formData.consentConfirmed,
         is_published: formData.is_published,

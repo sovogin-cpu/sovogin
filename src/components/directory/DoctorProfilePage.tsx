@@ -9,9 +9,14 @@ import {
   Mail,
   Globe,
   Video,
+  ShieldCheck,
+  Building2,
+  MessageSquare,
 } from "lucide-react";
 import { DoctorDirectoryProfilePublic } from "@/lib/directory/types";
 import {
+  buildFullLocationString,
+  buildWhatsAppUrl,
   formatDoctorSpecialty,
   isSafePublicEmail,
   isSafePublicPhone,
@@ -26,7 +31,26 @@ interface DoctorProfilePageProps {
 export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) => {
   const safeEmail = isSafePublicEmail(doctor.public_email) ? doctor.public_email : null;
   const safePhone = isSafePublicPhone(doctor.public_phone) ? doctor.public_phone : null;
+  const safeWhatsApp = buildWhatsAppUrl(doctor.whatsapp_phone);
   const safeWebsite = normalizeWebsiteUrl(doctor.website_url);
+  const locationString = buildFullLocationString(doctor.city, doctor.department, doctor.country);
+
+  const socialLinks = doctor.social_links || {};
+  const knownSocialKeys = ["linkedin", "instagram", "facebook", "researchgate"] as const;
+
+  const validSocialLinks = knownSocialKeys
+    .map((key) => {
+      const raw = socialLinks[key];
+      if (!raw || raw.trim() === "") return null;
+      const safeUrl = normalizeWebsiteUrl(raw);
+      if (!safeUrl) return null;
+      return { key, url: safeUrl };
+    })
+    .filter((item): item is { key: typeof knownSocialKeys[number]; url: string } => item !== null);
+
+  const hasContactActions = Boolean(safeWhatsApp || safePhone || safeEmail || safeWebsite);
+  const hasSocialLinks = validSocialLinks.length > 0;
+  const hasContactSection = hasContactActions || hasSocialLinks;
 
   return (
     <div className="min-h-screen bg-slate-50/50 pt-28 pb-20">
@@ -35,7 +59,8 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
         <div>
           <Link
             href="/comunidad/directorio-medico"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors shadow-xs"
+            aria-label="Volver al Directorio Médico"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#006666] focus-visible:ring-offset-2"
           >
             <ArrowLeft className="w-4 h-4 text-[#006666]" />
             <span>Volver al Directorio Médico</span>
@@ -75,7 +100,17 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
                 {doctor.telemedicine_available && (
                   <span className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-full flex items-center gap-1 shadow-xs">
                     <Video className="w-3.5 h-3.5" />
-                    <span>Telemedicina disponible</span>
+                    <span>Teleconsulta disponible</span>
+                  </span>
+                )}
+
+                {doctor.is_verified && (
+                  <span
+                    className="px-3 py-1 bg-teal-700 text-white text-xs font-bold rounded-full flex items-center gap-1 shadow-xs cursor-help"
+                    title="Especialista verificado como miembro activo de la Sociedad Vallecaucana de Obstetricia y Ginecología"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-200" />
+                    <span>Médico verificado por SOVOGIN</span>
                   </span>
                 )}
               </div>
@@ -90,59 +125,120 @@ export const DoctorProfilePage: React.FC<DoctorProfilePageProps> = ({ doctor }) 
               </div>
             </div>
 
-            {/* City & Office Address */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                <MapPin className="w-4 h-4 text-rose-600" />
-                <span>{doctor.city}</span>
+            {/* Institution & Address */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+              {doctor.clinic_name && (
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Building2 className="w-4 h-4 text-[#006666]" />
+                  <span>{doctor.clinic_name}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                <MapPin className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{locationString}</span>
               </div>
+
               {doctor.office_address && (
-                <p className="text-xs text-slate-600 pl-6">
+                <p className="text-xs text-slate-600 pl-6 leading-relaxed">
                   {doctor.office_address}
                 </p>
               )}
             </div>
 
-            {/* Public Contact Channels */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Contacto Profesional Público
-              </h3>
+            {/* Public Contact Channels & Social Links */}
+            {hasContactSection && (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                {hasContactActions && (
+                  <>
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Contacto Profesional Público
+                    </h3>
 
-              <div className="flex flex-wrap gap-3 pt-1">
-                {safePhone && (
-                  <a
-                    href={`tel:${safePhone.replace(/\s+/g, "")}`}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#006666] hover:bg-[#004d4d] text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>Llamar {safePhone}</span>
-                  </a>
+                    <div className="flex flex-wrap gap-3">
+                      {safeWhatsApp && (
+                        <a
+                          href={safeWhatsApp}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Contactar por WhatsApp al Dr. ${doctor.display_name}`}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Contactar por WhatsApp</span>
+                        </a>
+                      )}
+
+                      {safePhone && (
+                        <a
+                          href={`tel:${safePhone.replace(/\s+/g, "")}`}
+                          aria-label={`Llamar al teléfono profesional ${safePhone}`}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-[#006666] hover:bg-[#004d4d] text-white font-semibold text-xs rounded-xl transition-colors shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#006666] focus-visible:ring-offset-2"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          <span>Llamar {safePhone}</span>
+                        </a>
+                      )}
+
+                      {safeEmail && (
+                        <a
+                          href={`mailto:${safeEmail}`}
+                          aria-label={`Enviar correo a ${safeEmail}`}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>Enviar correo</span>
+                        </a>
+                      )}
+
+                      {safeWebsite && (
+                        <a
+                          href={safeWebsite}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Visitar sitio web del consultorio de ${doctor.display_name}`}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl border border-slate-200 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                        >
+                          <Globe className="w-3.5 h-3.5 text-[#006666]" />
+                          <span>Sitio Web Consultorio</span>
+                        </a>
+                      )}
+                    </div>
+                  </>
                 )}
 
-                {safeEmail && (
-                  <a
-                    href={`mailto:${safeEmail}`}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Enviar correo</span>
-                  </a>
-                )}
+                {/* Professional Social Links */}
+                {hasSocialLinks && (
+                  <div className="pt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                      Redes Profesionales:
+                    </span>
+                    {validSocialLinks.map(({ key, url }) => {
+                      const labelMap: Record<string, string> = {
+                        linkedin: "LinkedIn",
+                        instagram: "Instagram",
+                        facebook: "Facebook",
+                        researchgate: "ResearchGate",
+                      };
+                      const label = labelMap[key] || key;
 
-                {safeWebsite && (
-                  <a
-                    href={safeWebsite}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl border border-slate-200 transition-colors"
-                  >
-                    <Globe className="w-3.5 h-3.5 text-[#006666]" />
-                    <span>Sitio Web Consultorio</span>
-                  </a>
+                      return (
+                        <a
+                          key={key}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Perfil de ${label} de ${doctor.display_name}`}
+                          className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-200 transition-colors capitalize focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                        >
+                          {label}
+                        </a>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
         </div>
 

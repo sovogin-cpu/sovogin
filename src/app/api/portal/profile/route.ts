@@ -7,6 +7,8 @@ const FORBIDDEN_PATCH_KEYS = [
   "associate_id",
   "profile_media_id",
   "display_order",
+  "is_verified",
+  "slug",
   "user_id",
   "created_at",
   "updated_at",
@@ -19,12 +21,17 @@ const ALLOWED_PATCH_KEYS = [
   "specialty",
   "subspecialty",
   "city",
-  "public_phone",
-  "public_email",
+  "department",
+  "country",
+  "clinic_name",
   "office_address",
-  "bio",
+  "public_phone",
+  "whatsapp_phone",
+  "public_email",
   "website_url",
+  "bio",
   "telemedicine_available",
+  "social_links",
   "consentConfirmed",
   "is_published",
 ];
@@ -158,6 +165,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Process social links safely if provided
+    const socialLinksInput = body.social_links && typeof body.social_links === "object" ? body.social_links : {};
+    const sanitizedSocialLinks: Record<string, string> = {};
+    const knownKeys = ["linkedin", "instagram", "facebook", "researchgate"];
+    for (const k of knownKeys) {
+      if (socialLinksInput[k] && typeof socialLinksInput[k] === "string" && socialLinksInput[k].trim() !== "") {
+        const norm = normalizeWebsiteUrl(socialLinksInput[k]);
+        if (norm) {
+          sanitizedSocialLinks[k] = norm;
+        }
+      }
+    }
+
     const consentConfirmed = Boolean(body.consentConfirmed);
     const consentGivenAt = consentConfirmed ? new Date().toISOString() : null;
     const isPublished = consentConfirmed ? Boolean(body.is_published) : false;
@@ -167,14 +187,20 @@ export async function POST(request: NextRequest) {
       display_name: displayName,
       specialty: specialty,
       subspecialty: body.subspecialty?.trim() || null,
-      city: body.city?.trim() || null, // NO default city!
+      country: body.country?.trim() || "Colombia",
+      department: body.department?.trim() || null,
+      city: body.city?.trim() || null,
+      clinic_name: body.clinic_name?.trim() || null,
       public_phone: body.public_phone?.trim() || null,
+      whatsapp_phone: body.whatsapp_phone?.trim() || null,
       public_email: publicEmail,
       office_address: body.office_address?.trim() || null,
       profile_media_id: null,
       bio: body.bio?.trim() || null,
       website_url: rawWeb,
+      social_links: sanitizedSocialLinks,
       telemedicine_available: Boolean(body.telemedicine_available),
+      is_verified: false, // FORCED false on self-service creation!
       consent_given_at: consentGivenAt,
       is_published: isPublished,
       display_order: 0,
@@ -230,7 +256,7 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: `Modificación no permitida para el campo '${key}'. Use endpoints dedicados si corresponde.`,
+            error: `Modificación no permitida para el campo '${key}'.`,
           },
           { status: 400 }
         );
@@ -279,12 +305,28 @@ export async function PATCH(request: NextRequest) {
       updates.subspecialty = body.subspecialty?.trim() || null;
     }
 
+    if (body.country !== undefined) {
+      updates.country = body.country?.trim() || "Colombia";
+    }
+
+    if (body.department !== undefined) {
+      updates.department = body.department?.trim() || null;
+    }
+
     if (body.city !== undefined) {
       updates.city = body.city?.trim() || null;
     }
 
+    if (body.clinic_name !== undefined) {
+      updates.clinic_name = body.clinic_name?.trim() || null;
+    }
+
     if (body.public_phone !== undefined) {
       updates.public_phone = body.public_phone?.trim() || null;
+    }
+
+    if (body.whatsapp_phone !== undefined) {
+      updates.whatsapp_phone = body.whatsapp_phone?.trim() || null;
     }
 
     if (body.public_email !== undefined) {
@@ -315,6 +357,21 @@ export async function PATCH(request: NextRequest) {
         );
       }
       updates.website_url = normalized;
+    }
+
+    if (body.social_links !== undefined) {
+      const socialObj = body.social_links && typeof body.social_links === "object" ? body.social_links : {};
+      const sanitizedSocial: Record<string, string> = {};
+      const knownKeys = ["linkedin", "instagram", "facebook", "researchgate"];
+      for (const k of knownKeys) {
+        if (socialObj[k] && typeof socialObj[k] === "string" && socialObj[k].trim() !== "") {
+          const norm = normalizeWebsiteUrl(socialObj[k]);
+          if (norm) {
+            sanitizedSocial[k] = norm;
+          }
+        }
+      }
+      updates.social_links = sanitizedSocial;
     }
 
     if (body.telemedicine_available !== undefined) {

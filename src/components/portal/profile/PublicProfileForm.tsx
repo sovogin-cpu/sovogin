@@ -21,17 +21,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+export interface DoctorSocialLinksForm {
+  linkedin?: string;
+  instagram?: string;
+  facebook?: string;
+  researchgate?: string;
+}
+
 export interface ProfileFormData {
   display_name: string;
   specialty: string;
   subspecialty: string;
+  country: string;
+  department: string;
   city: string;
-  public_phone: string;
-  public_email: string;
+  clinic_name: string;
   office_address: string;
-  bio: string;
+  public_phone: string;
+  whatsapp_phone: string;
+  public_email: string;
   website_url: string;
+  bio: string;
   telemedicine_available: boolean;
+  social_links: DoctorSocialLinksForm;
   consentConfirmed: boolean;
   is_published: boolean;
 }
@@ -55,6 +67,19 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value, type } = e.target;
+
+    if (name.startsWith("social_")) {
+      const socialKey = name.replace("social_", "");
+      setFormData((prev) => ({
+        ...prev,
+        social_links: {
+          ...prev.social_links,
+          [socialKey]: value,
+        },
+      }));
+      return;
+    }
+
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
       setFormData((prev) => {
@@ -139,6 +164,21 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
             />
           </div>
 
+          {/* Clínica / Institución */}
+          <div className="space-y-2 md:col-span-2">
+            <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
+              <MapPin className="w-3.5 h-3.5 text-teal-400" />
+              Nombre de la Clínica, Centro Médico u Hospital (Opcional)
+            </Label>
+            <Input
+              name="clinic_name"
+              value={formData.clinic_name}
+              onChange={handleChange}
+              placeholder="Ej. Centro Médico Imbanaco, Fundación Valle del Lili"
+              className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
+            />
+          </div>
+
           {/* Ciudad */}
           <div className="space-y-2">
             <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
@@ -149,9 +189,57 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
               name="city"
               value={formData.city}
               onChange={handleChange}
-              placeholder="Ej. Cali, Palmira, Buenaventura, Bogotá"
+              placeholder="Ej. Cali, Palmira, Bogotá, Medellín"
               className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
             />
+          </div>
+
+          {/* Departamento */}
+          <div className="space-y-2">
+            <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
+              <MapPin className="w-3.5 h-3.5 text-slate-400" />
+              Departamento / Estado (Opcional)
+            </Label>
+            <Input
+              name="department"
+              value={formData.department}
+              onChange={handleChange}
+              placeholder="Ej. Valle del Cauca, Cundinamarca, Antioquia"
+              className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
+            />
+          </div>
+
+          {/* País */}
+          <div className="space-y-2 md:col-span-2">
+            <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
+              <MapPin className="w-3.5 h-3.5 text-slate-400" />
+              País
+            </Label>
+            <Input
+              name="country"
+              value={formData.country}
+              onChange={handleChange}
+              placeholder="Ej. Colombia"
+              className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
+            />
+          </div>
+
+          {/* WhatsApp Profesional */}
+          <div className="space-y-2">
+            <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
+              <Phone className="w-3.5 h-3.5 text-emerald-400" />
+              WhatsApp Profesional
+            </Label>
+            <Input
+              name="whatsapp_phone"
+              value={formData.whatsapp_phone}
+              onChange={handleChange}
+              placeholder="Ej. +57 300 123 4567"
+              className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
+            />
+            <span className="text-[11px] text-emerald-400 font-medium block">
+              Este número podrá mostrarse públicamente en el Directorio Médico para contacto directo.
+            </span>
           </div>
 
           {/* Teléfono público */}
@@ -164,9 +252,12 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
               name="public_phone"
               value={formData.public_phone}
               onChange={handleChange}
-              placeholder="Ej. +57 602 555 1234 / +57 300 123 4567"
+              placeholder="Ej. +57 602 555 1234"
               className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
             />
+            <span className="text-[11px] text-slate-400 block">
+              Este número será visible públicamente.
+            </span>
           </div>
 
           {/* Correo público */}
@@ -183,6 +274,9 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
               placeholder="Ej. citas@doctoramariaperez.com"
               className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
             />
+            <span className="text-[11px] text-slate-400 block">
+              Este correo será visible públicamente para consultas de pacientes.
+            </span>
           </div>
 
           {/* Sitio Web */}
@@ -204,15 +298,68 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
           <div className="space-y-2 md:col-span-2">
             <Label className="text-slate-200 font-bold flex items-center gap-1.5 text-xs">
               <MapPin className="w-3.5 h-3.5 text-slate-400" />
-              Dirección de Consultorio / Clínica
+              Dirección Física de Consultorio / Oficina
             </Label>
             <Input
               name="office_address"
               value={formData.office_address}
               onChange={handleChange}
-              placeholder="Ej. Calle 5 # 38-25, Centro Médico Imbanaco, Torre A, Cons. 402"
+              placeholder="Ej. Calle 5 # 38-25, Torre A, Consultorio 402"
               className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-400 rounded-xl focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-xs h-11"
             />
+            <span className="text-[11px] text-slate-400 block">
+              Esta dirección será visible públicamente para ubicar su consultorio.
+            </span>
+          </div>
+
+          {/* Redes Sociales Profesionales Sub-form */}
+          <div className="space-y-4 md:col-span-2 bg-slate-950 p-5 rounded-2xl border border-slate-800">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Globe className="w-4 h-4 text-teal-400" />
+              Redes Sociales Profesionales (Opcionales)
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-[11px] font-semibold">LinkedIn</Label>
+                <Input
+                  name="social_linkedin"
+                  value={formData.social_links.linkedin || ""}
+                  onChange={handleChange}
+                  placeholder="https://linkedin.com/in/perfil"
+                  className="bg-slate-900 border-slate-800 text-white text-xs h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-[11px] font-semibold">Instagram</Label>
+                <Input
+                  name="social_instagram"
+                  value={formData.social_links.instagram || ""}
+                  onChange={handleChange}
+                  placeholder="https://instagram.com/perfil"
+                  className="bg-slate-900 border-slate-800 text-white text-xs h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-[11px] font-semibold">Facebook</Label>
+                <Input
+                  name="social_facebook"
+                  value={formData.social_links.facebook || ""}
+                  onChange={handleChange}
+                  placeholder="https://facebook.com/perfil"
+                  className="bg-slate-900 border-slate-800 text-white text-xs h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-[11px] font-semibold">ResearchGate</Label>
+                <Input
+                  name="social_researchgate"
+                  value={formData.social_links.researchgate || ""}
+                  onChange={handleChange}
+                  placeholder="https://researchgate.net/profile/..."
+                  className="bg-slate-900 border-slate-800 text-white text-xs h-10"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Reseña Bio */}
@@ -284,7 +431,7 @@ export const PublicProfileForm: React.FC<PublicProfileFormProps> = ({
                 htmlFor="consentConfirmed"
                 className="text-slate-200 text-xs leading-relaxed font-semibold cursor-pointer"
               >
-                Autorizo expresamente a la Sociedad Venezolana de Obstetricia y Ginecología (SOVOGIN) a publicar y difundir mis datos de contacto profesional en el Directorio Médico Público según la política de tratamiento de datos personales (Habeas Data / Ley 1581 de Protección de Datos).
+                Autorizo expresamente a la Sociedad Colombiana de Ginecología y Obstetricia (SOVOGIN) a publicar y difundir mis datos de contacto profesional en el Directorio Médico Público según la política de tratamiento de datos personales (Habeas Data / Ley 1581 de Protección de Datos).
               </Label>
             </div>
 

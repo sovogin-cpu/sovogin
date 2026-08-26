@@ -4,24 +4,31 @@ import {
   AssociateDirectoryProfileSummary,
   DoctorDirectoryAdminProfile,
   DoctorDirectoryFilters,
+  DoctorDirectoryPaginatedResult,
   DoctorDirectoryProfilePublic,
   DoctorProfileFormData,
 } from "./types";
-import { normalizeWebsiteUrl } from "./directory-utils";
+import { createDoctorSlug, isUUID, normalizeWebsiteUrl, sanitizePostgrestSearchTerm } from "./directory-utils";
 
 /**
- * List published doctor directory profiles for public frontend.
+ * List published doctor directory profiles with server-side pagination and total count.
  * Mandatory filters: is_published = true AND consent_given_at IS NOT NULL.
  * Order: display_order ASC, display_name ASC.
  */
-export async function listPublishedDoctors(
+export async function listPublishedDoctorsPaginated(
   supabase: SupabaseClient,
   filters?: DoctorDirectoryFilters
-): Promise<DoctorDirectoryProfilePublic[]> {
+): Promise<DoctorDirectoryPaginatedResult> {
+  const page = Math.max(1, filters?.page || 1);
+  const pageSize = Math.min(50, Math.max(1, filters?.pageSize || 12));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   let query = supabase
     .from("doctor_directory_profiles")
     .select(
-      "id, display_name, specialty, subspecialty, city, public_phone, public_email, office_address, profile_media_id, bio, website_url, telemedicine_available, consent_given_at, is_published, display_order, created_at, updated_at"
+      "id, display_name, slug, specialty, subspecialty, country, department, city, clinic_name, public_phone, whatsapp_phone, public_email, office_address, profile_media_id, bio, website_url, social_links, telemedicine_available, is_verified, consent_given_at, is_published, display_order, created_at, updated_at",
+      { count: "exact" }
     )
     .eq("is_published", true)
     .not("consent_given_at", "is", null);
@@ -34,25 +41,63 @@ export async function listPublishedDoctors(
     query = query.eq("city", filters.city);
   }
 
+  if (filters?.country && filters.country !== "all") {
+    query = query.eq("country", filters.country);
+  }
+
+  if (filters?.department && filters.department !== "all") {
+    query = query.eq("department", filters.department);
+  }
+
   if (filters?.telemedicineAvailable !== undefined) {
     query = query.eq("telemedicine_available", filters.telemedicineAvailable);
   }
 
   if (filters?.search && filters.search.trim() !== "") {
-    const term = `%${filters.search.trim()}%`;
-    query = query.or(
-      `display_name.ilike.${term},specialty.ilike.${term},subspecialty.ilike.${term},city.ilike.${term}`
-    );
+    const sanitized = sanitizePostgrestSearchTerm(filters.search);
+    if (sanitized !== "") {
+      const term = `%${sanitized}%`;
+      query = query.or(
+        `display_name.ilike.${term},specialty.ilike.${term},subspecialty.ilike.${term},city.ilike.${term},clinic_name.ilike.${term}`
+      );
+    }
   }
 
   query = query
     .order("display_order", { ascending: true })
-    .order("display_name", { ascending: true });
+    .order("display_name", { ascending: true })
+    .range(from, to);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
-  return (data as DoctorDirectoryProfilePublic[]) || [];
+  const totalCount = count || 0;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+  return {
+    doctors: (data as DoctorDirectoryProfilePublic[]) || [],
+    totalCount,
+    page,
+    pageSize,
+    totalPages,
+  };
+}
+
+/**
+ * List published doctor directory profiles for public frontend.
+ * Mandatory filters: is_published = true AND consent_given_at IS NOT NULL.
+ * Order: display_order ASC, display_name ASC.
+ */
+export async function listPublishedDoctors(
+  supabase: SupabaseClient,
+  filters?: DoctorDirectoryFilters
+): Promise<DoctorDirectoryProfilePublic[]> {
+  const result = await listPublishedDoctorsPaginated(supabase, {
+    ...filters,
+    page: 1,
+    pageSize: 500,
+  });
+  return result.doctors;
 }
 
 /**
@@ -65,7 +110,7 @@ export async function getPublishedDoctorById(
   const { data, error } = await supabase
     .from("doctor_directory_profiles")
     .select(
-      "id, display_name, specialty, subspecialty, city, public_phone, public_email, office_address, profile_media_id, bio, website_url, telemedicine_available, consent_given_at, is_published, display_order, created_at, updated_at"
+      "id, display_name, slug, specialty, subspecialty, country, department, city, clinic_name, public_phone, whatsapp_phone, public_email, office_address, profile_media_id, bio, website_url, social_links, telemedicine_available, is_verified, consent_given_at, is_published, display_order, created_at, updated_at"
     )
     .eq("id", id)
     .eq("is_published", true)
@@ -74,6 +119,43 @@ export async function getPublishedDoctorById(
 
   if (error) throw error;
   return (data as DoctorDirectoryProfilePublic) || null;
+}
+
+/**
+ * Get a single published doctor directory profile by URL slug.
+ */
+export async function getPublishedDoctorBySlug(
+  supabase: SupabaseClient,
+  slug: string
+): Promise<DoctorDirectoryProfilePublic | null> {
+  const { data, error } = await supabase
+    .from("doctor_directory_profiles")
+    .select(
+      "id, display_name, slug, specialty, subspecialty, country, department, city, clinic_name, public_phone, whatsapp_phone, public_email, office_address, profile_media_id, bio, website_url, social_links, telemedicine_available, is_verified, consent_given_at, is_published, display_order, created_at, updated_at"
+    )
+    .eq("slug", slug)
+    .eq("is_published", true)
+    .not("consent_given_at", "is", null)
+    .maybeSingle();
+
+  if (error) throw error;
+  return (data as DoctorDirectoryProfilePublic) || null;
+}
+
+/**
+ * Unified resolver to fetch a published doctor profile by either UUID or URL slug.
+ */
+export async function getPublishedDoctorProfile(
+  supabase: SupabaseClient,
+  identifier: string
+): Promise<DoctorDirectoryProfilePublic | null> {
+  if (!identifier || identifier.trim() === "") return null;
+  const trimmed = identifier.trim();
+
+  if (isUUID(trimmed)) {
+    return getPublishedDoctorById(supabase, trimmed);
+  }
+  return getPublishedDoctorBySlug(supabase, trimmed);
 }
 
 /**
@@ -100,6 +182,31 @@ export async function listDoctorSpecialties(
 }
 
 /**
+ * List distinct departments from published profiles with consent.
+ */
+export async function listDoctorDepartments(
+  supabase: SupabaseClient
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("doctor_directory_profiles")
+    .select("department")
+    .eq("is_published", true)
+    .not("consent_given_at", "is", null);
+
+  if (error) throw error;
+  if (!data) return [];
+
+  const set = new Set<string>();
+  data.forEach((item: { department?: string | null }) => {
+    if (item.department && item.department.trim() !== "") {
+      set.add(item.department.trim());
+    }
+  });
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * List distinct cities from published profiles with consent.
  */
 export async function listDoctorCities(
@@ -117,6 +224,31 @@ export async function listDoctorCities(
   const set = new Set<string>();
   data.forEach((item: { city: string }) => {
     if (item.city) set.add(item.city);
+  });
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * List distinct countries from published profiles with consent.
+ */
+export async function listDoctorCountries(
+  supabase: SupabaseClient
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("doctor_directory_profiles")
+    .select("country")
+    .eq("is_published", true)
+    .not("consent_given_at", "is", null);
+
+  if (error) throw error;
+  if (!data) return [];
+
+  const set = new Set<string>();
+  data.forEach((item: { country?: string | null }) => {
+    if (item.country && item.country.trim() !== "") {
+      set.add(item.country.trim());
+    }
   });
 
   return Array.from(set).sort((a, b) => a.localeCompare(b));
@@ -301,20 +433,28 @@ export async function createDoctorDirectoryProfile(
 
   const consentGivenAt = payload.consentConfirmed ? new Date().toISOString() : null;
   const normalizedWeb = normalizeWebsiteUrl(payload.website_url);
+  const generatedSlug = payload.slug?.trim() || createDoctorSlug(trimmedName);
 
   const insertData = {
     associate_id: payload.associate_id,
     display_name: trimmedName,
+    slug: generatedSlug,
     specialty: payload.specialty.trim() || "Ginecología y Obstetricia",
     subspecialty: payload.subspecialty?.trim() || null,
+    country: payload.country?.trim() || "Colombia",
+    department: payload.department?.trim() || null,
     city: payload.city.trim() || "Cali",
+    clinic_name: payload.clinic_name?.trim() || null,
     public_phone: payload.public_phone?.trim() || null,
+    whatsapp_phone: payload.whatsapp_phone?.trim() || null,
     public_email: payload.public_email?.trim() || null,
     office_address: payload.office_address?.trim() || null,
     profile_media_id: payload.profile_media_id || null,
     bio: payload.bio?.trim() || null,
     website_url: normalizedWeb,
+    social_links: payload.social_links || {},
     telemedicine_available: payload.telemedicine_available,
+    is_verified: payload.is_verified ?? false,
     consent_given_at: consentGivenAt,
     is_published: payload.is_published,
     display_order: payload.display_order >= 0 ? payload.display_order : 0,
@@ -349,18 +489,33 @@ export async function updateDoctorDirectoryProfile(
     const trimmed = payload.display_name.trim();
     if (!trimmed) throw new Error("El nombre público no puede estar vacío.");
     updates.display_name = trimmed;
+
+    // Direct update to slug if explicitly requested or fallback if current has no slug
+    if (payload.slug !== undefined) {
+      updates.slug = payload.slug?.trim() || createDoctorSlug(trimmed);
+    } else if (!current.slug) {
+      updates.slug = createDoctorSlug(trimmed);
+    }
+  } else if (payload.slug !== undefined) {
+    updates.slug = payload.slug?.trim() || null;
   }
 
   if (payload.specialty !== undefined) updates.specialty = payload.specialty.trim();
   if (payload.subspecialty !== undefined) updates.subspecialty = payload.subspecialty?.trim() || null;
+  if (payload.country !== undefined) updates.country = payload.country.trim();
+  if (payload.department !== undefined) updates.department = payload.department?.trim() || null;
   if (payload.city !== undefined) updates.city = payload.city.trim();
+  if (payload.clinic_name !== undefined) updates.clinic_name = payload.clinic_name?.trim() || null;
   if (payload.public_phone !== undefined) updates.public_phone = payload.public_phone?.trim() || null;
+  if (payload.whatsapp_phone !== undefined) updates.whatsapp_phone = payload.whatsapp_phone?.trim() || null;
   if (payload.public_email !== undefined) updates.public_email = payload.public_email?.trim() || null;
   if (payload.office_address !== undefined) updates.office_address = payload.office_address?.trim() || null;
   if (payload.profile_media_id !== undefined) updates.profile_media_id = payload.profile_media_id || null;
   if (payload.bio !== undefined) updates.bio = payload.bio?.trim() || null;
   if (payload.website_url !== undefined) updates.website_url = normalizeWebsiteUrl(payload.website_url);
+  if (payload.social_links !== undefined) updates.social_links = payload.social_links || {};
   if (payload.telemedicine_available !== undefined) updates.telemedicine_available = payload.telemedicine_available;
+  if (payload.is_verified !== undefined) updates.is_verified = payload.is_verified;
   if (payload.display_order !== undefined) updates.display_order = Math.max(0, payload.display_order);
 
   // Consent & Publish rules
