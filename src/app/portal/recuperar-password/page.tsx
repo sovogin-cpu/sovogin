@@ -23,7 +23,7 @@ export default function PortalRecuperarPasswordPage() {
     setSuccess(false);
 
     try {
-      const redirectUrl = `${window.location.origin}/portal/actualizar-password`;
+      const redirectUrl = `${window.location.origin}/auth/callback?next=/portal/actualizar-password`;
 
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim(),

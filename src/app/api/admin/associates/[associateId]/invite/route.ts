@@ -75,7 +75,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const origin = request.nextUrl.origin;
-    const redirectToUrl = `${origin}/portal/actualizar-password`;
+    const redirectToUrl = `${origin}/auth/callback?next=/portal/actualizar-password`;
 
     // 4. Si el asociado ya tiene user_id vinculado (Re-envío / Recuperación de acceso)
     if (associate.user_id) {
@@ -97,15 +97,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       const activationLink = linkData?.properties?.action_link || `${origin}/portal/login`;
 
-      await sendAssociateInviteEmail({
+      const emailResult = await sendAssociateInviteEmail({
         associateName: associate.full_name,
         associateEmail: cleanEmail,
         activationLink,
       });
 
+      if (!emailResult.success) {
+        return NextResponse.json({
+          success: false,
+          alreadyLinked: true,
+          emailSent: false,
+          message: `El asociado está vinculado, pero falló el re-envío del correo: ${emailResult.error || "Error de envío"}`,
+          error: emailResult.error || "Fallo al enviar correo con Resend.",
+        });
+      }
+
       return NextResponse.json({
         success: true,
         alreadyLinked: true,
+        emailSent: true,
         message: "El asociado ya se encontraba vinculado. Se ha re-enviado el acceso al correo.",
       });
     }
@@ -196,15 +207,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // 7. Enviar notificación por correo con el enlace correspondiente
-    await sendAssociateInviteEmail({
+    const emailResult = await sendAssociateInviteEmail({
       associateName: associate.full_name,
       associateEmail: cleanEmail,
       activationLink,
     });
 
+    if (!emailResult.success) {
+      return NextResponse.json({
+        success: false,
+        alreadyLinked: false,
+        emailSent: false,
+        message: `Cuenta vinculada correctamente, pero falló el envío del correo de invitación: ${emailResult.error || "Error de envío"}`,
+        error: emailResult.error || "Fallo al enviar correo con Resend.",
+      });
+    }
+
     return NextResponse.json({
       success: true,
       alreadyLinked: false,
+      emailSent: true,
       message: `Invitación enviada exitosamente a ${cleanEmail}.`,
     });
   } catch (error: unknown) {
