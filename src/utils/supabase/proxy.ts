@@ -40,6 +40,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/portal/login') ||
     request.nextUrl.pathname.startsWith('/portal/recuperar-password') ||
     request.nextUrl.pathname.startsWith('/portal/actualizar-password') ||
+    request.nextUrl.pathname.startsWith('/portal/activar-cuenta') ||
     request.nextUrl.pathname.startsWith('/portal/no-autorizado') ||
     request.nextUrl.pathname.startsWith('/portal/membresia-inactiva')
 
