@@ -32,11 +32,17 @@ function mockAssociate(
     open_charge_count: outstanding > 0 ? 1 : 0,
     total_outstanding: outstanding,
     days_past_due: dpd,
-    aging_bucket: dpd > 0 ? "1-30 días" : "AL DÍA",
+    aging_bucket: dpd > 0 ? "1-30 días" : "CURRENT",
     oldest_unpaid_due_date: dpd > 0 ? "2026-08-01" : null,
     collection_status: collectionStatus,
     follow_up_state: followUpState,
     latest_collection_action: latestAction,
+    current_amount: dpd === 0 ? outstanding : 0,
+    days_1_30: dpd > 0 ? outstanding : 0,
+    days_31_60: 0,
+    days_61_90: 0,
+    days_91_120: 0,
+    days_over_120: 0,
   };
 }
 
