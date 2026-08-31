@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
-  ArrowRight,
   Filter,
   RefreshCw,
   UserCheck,
@@ -21,6 +20,13 @@ import {
   MessageSquare,
   ShieldAlert,
   Check,
+  Sparkles,
+  ShieldCheck,
+  Eye,
+  Mail,
+  ChevronDown,
+  ChevronRight,
+  Code,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,9 +46,13 @@ import {
   calculateOperationalKPIs,
   getFollowUpQueue,
   getPaymentPromisesMonitor,
-  FollowUpQueueItem,
-  PaymentPromiseItem,
 } from "@/lib/collections/collections-queue-service";
+import {
+  getSuppressionReasonMeta,
+  getAutomationTriggerLabel,
+  getChannelLabel,
+  AutomationDryRunApiResponseData,
+} from "@/lib/collections/collections-automation-presentation";
 
 interface EnrichedAssociateItem {
   associate_id: string;
@@ -74,12 +84,18 @@ export default function CollectionsPortfolioAdminPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Client-side Operational Tabs & Filter States
-  const [activeTab, setActiveTab] = useState<"CARTERA" | "SEGUIMIENTOS" | "PROMESAS">("CARTERA");
+  const [activeTab, setActiveTab] = useState<"CARTERA" | "SEGUIMIENTOS" | "PROMESAS" | "SIMULACION">("CARTERA");
   const [searchTerm, setSearchTerm] = useState("");
   const [financialStatusFilter, setFinancialStatusFilter] = useState<string>("ALL");
   const [bucketFilter, setBucketFilter] = useState<string>("ALL");
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<string>("ALL");
   const [sortOption, setSortOption] = useState<string>("dpd_desc");
+
+  // Simulation State (E2.2 Read-Only Console)
+  const [simulationPreview, setSimulationPreview] = useState<AutomationDryRunApiResponseData | null>(null);
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [expandedIdempotencyKey, setExpandedIdempotencyKey] = useState<string | null>(null);
 
   const actionsByAssociateId = useMemo(() => {
     const map: Record<string, CollectionAction[]> = {};
@@ -124,6 +140,27 @@ export default function CollectionsPortfolioAdminPage() {
     }
   }, []);
 
+  const runSimulation = useCallback(async () => {
+    if (simulationLoading) return; // Anti-double click protection
+    setSimulationLoading(true);
+    setSimulationError(null);
+    try {
+      const res = await fetch("/api/admin/collections/automation/dry-run");
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Error al ejecutar la simulación de automatizaciones.");
+      }
+
+      setSimulationPreview(data.data || null);
+    } catch (err: unknown) {
+      console.error("Error ejecutando simulación dry-run:", err);
+      setSimulationError(err instanceof Error ? err.message : "Error al consultar simulación.");
+    } finally {
+      setSimulationLoading(false);
+    }
+  }, [simulationLoading]);
+
   useEffect(() => {
     void fetchCollectionsData();
   }, [fetchCollectionsData]);
@@ -138,7 +175,6 @@ export default function CollectionsPortfolioAdminPage() {
 
   const filteredAssociates = useMemo(() => {
     return associates.filter((item) => {
-      // Búsqueda
       const term = searchTerm.trim().toLowerCase();
       if (term) {
         const nameMatch = item.full_name.toLowerCase().includes(term);
@@ -152,17 +188,14 @@ export default function CollectionsPortfolioAdminPage() {
         }
       }
 
-      // Filtro Estado Financiero
       if (financialStatusFilter !== "ALL" && item.account_status !== financialStatusFilter) {
         return false;
       }
 
-      // Filtro Bucket
       if (bucketFilter !== "ALL" && item.aging_bucket !== bucketFilter) {
         return false;
       }
 
-      // Filtro Estado Operativo
       if (collectionStatusFilter !== "ALL" && item.collection_status !== collectionStatusFilter) {
         return false;
       }
@@ -205,7 +238,6 @@ export default function CollectionsPortfolioAdminPage() {
     setSortOption("dpd_desc");
   };
 
-  // Helper Badges
   const getFinancialStatusBadge = (status: AccountStatus) => {
     switch (status) {
       case "EN MORA":
@@ -415,81 +447,6 @@ export default function CollectionsPortfolioAdminPage() {
         </div>
       )}
 
-      {/* Aging Bucket Strip */}
-      {summary && (
-        <div className="bg-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-300">
-            <Layers className="w-4 h-4 text-amber-400" />
-            <span>Distribución de Cartera por Antigüedad (Aging Buckets)</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1 text-center">
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Corriente (0d)</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.current_amount)}</span>
-            </div>
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-amber-400 uppercase font-bold block">1 - 30 Días</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.days_1_30)}</span>
-            </div>
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-orange-400 uppercase font-bold block">31 - 60 Días</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.days_31_60)}</span>
-            </div>
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-rose-400 uppercase font-bold block">61 - 90 Días</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.days_61_90)}</span>
-            </div>
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-rose-500 uppercase font-bold block">91 - 120 Días</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.days_91_120)}</span>
-            </div>
-            <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-              <span className="text-[10px] text-purple-400 uppercase font-bold block">+120 Días</span>
-              <span className="text-sm font-bold text-slate-100">{formatMoney(summary.days_over_120)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Operational KPIs Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-rose-600 block">Seguimientos Vencidos</span>
-          <span className="text-xl font-black text-rose-900">{operationalKPIs.follow_ups_overdue_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-blue-600 block">Seguimientos Hoy</span>
-          <span className="text-xl font-black text-blue-900">{operationalKPIs.follow_ups_today_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-emerald-600 block">Promesas Activas</span>
-          <span className="text-xl font-black text-emerald-900">{operationalKPIs.promises_active_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-amber-600 block">Promesas Vencidas</span>
-          <span className="text-xl font-black text-amber-900">{operationalKPIs.promises_overdue_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-purple-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-purple-600 block">Casos Escalados</span>
-          <span className="text-xl font-black text-purple-900">{operationalKPIs.escalated_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-rose-700 block">Casos en Disputa</span>
-          <span className="text-xl font-black text-rose-950">{operationalKPIs.disputed_count}</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-500 block">Sin Gestión</span>
-          <span className="text-xl font-black text-slate-800">{operationalKPIs.sin_gestion_count}</span>
-        </div>
-      </div>
-
       {/* Operational Sub-Tabs Navigation */}
       <div className="flex border-b border-slate-200 gap-6">
         <button
@@ -527,10 +484,343 @@ export default function CollectionsPortfolioAdminPage() {
           <DollarSign className="w-4 h-4" />
           <span>Monitor de Promesas ({promiseMonitor.length})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab("SIMULACION")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "SIMULACION"
+              ? "border-[#006666] text-[#006666]"
+              : "border-transparent text-slate-400 hover:text-slate-700"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-500" />
+          <span>Simulación de Automatizaciones</span>
+        </button>
       </div>
 
       {/* Render Active Tab Content */}
-      {activeTab === "SEGUIMIENTOS" ? (
+      {activeTab === "SIMULACION" ? (
+        <div className="space-y-6">
+          {/* Explicit Read-Only Console Banner */}
+          <div className="bg-indigo-950 text-white rounded-xl p-6 shadow-md border border-indigo-800 space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-indigo-800/80 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-900/80 rounded-lg border border-indigo-700">
+                  <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white font-heading">
+                      VISTA PREVIA DE AUTOMATIZACIONES DE COBRANZA
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      SOLO LECTURA
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-200 mt-0.5">
+                    Esta simulación es estrictamente de solo lectura. No crea eventos en la base de datos ni envía comunicaciones por correo, WhatsApp o SMS.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => void runSimulation()}
+                disabled={simulationLoading}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {simulationLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {simulationLoading ? "Evaluando cohorte..." : "Ejecutar Simulación"}
+              </Button>
+            </div>
+
+            {simulationPreview && (
+              <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-indigo-300 pt-1">
+                <div className="flex items-center gap-4">
+                  <span>
+                    <strong>Zona horaria:</strong> {simulationPreview.timezone}
+                  </span>
+                  <span>•</span>
+                  <span>
+                    <strong>Fecha evaluada:</strong> {simulationPreview.eval_date}
+                  </span>
+                </div>
+                <div>
+                  <strong>Simulación generada:</strong>{" "}
+                  {new Date(simulationPreview.generated_at).toLocaleString("es-CO", {
+                    timeZone: "America/Bogota",
+                    dateStyle: "medium",
+                    timeStyle: "medium",
+                  })} (America/Bogota)
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Simulation Error Display */}
+          {simulationError && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-sm flex items-center justify-between">
+              <div className="flex items-center gap-2 font-medium">
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                <span>{simulationError}</span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => void runSimulation()}>
+                Reintentar
+              </Button>
+            </div>
+          )}
+
+          {/* Simulation Results Section */}
+          {simulationPreview ? (
+            <div className="space-y-6">
+              {/* Simulation KPI Summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-1">
+                  <span className="text-xs font-semibold uppercase text-slate-500 block">
+                    Asociados Evaluados
+                  </span>
+                  <span className="text-2xl font-bold text-slate-900">
+                    {simulationPreview.total_associates_scanned}
+                  </span>
+                  <span className="text-xs text-slate-500 block">Cohorte total analizada</span>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl border border-emerald-200 shadow-sm bg-emerald-50/20 space-y-1">
+                  <span className="text-xs font-semibold uppercase text-emerald-700 block">
+                    Candidatos Elegibles
+                  </span>
+                  <span className="text-2xl font-bold text-emerald-900">
+                    {simulationPreview.total_candidates}
+                  </span>
+                  <span className="text-xs text-emerald-700 block">
+                    Notificaciones en simulación (Preview)
+                  </span>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl border border-amber-200 shadow-sm bg-amber-50/20 space-y-1">
+                  <span className="text-xs font-semibold uppercase text-amber-700 block">
+                    Asociados Suprimidos
+                  </span>
+                  <span className="text-2xl font-bold text-amber-900">
+                    {simulationPreview.total_suppressed}
+                  </span>
+                  <span className="text-xs text-amber-700 block">
+                    Suprimidos por reglas u homólogos
+                  </span>
+                </div>
+              </div>
+
+              {/* Candidate Events Preview Table */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-emerald-600" />
+                      Candidatos Elegibles a Comunicación ({simulationPreview.total_candidates})
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Eventos simulados con canal y fecha de referencia asignada determinísticamente
+                    </p>
+                  </div>
+                </div>
+
+                {simulationPreview.candidate_events.length === 0 ? (
+                  <div className="p-10 text-center text-slate-500 space-y-2">
+                    <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500" />
+                    <p className="text-sm font-bold text-slate-700">
+                      No hay comunicaciones elegibles en esta simulación.
+                    </p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead>Asociado</TableHead>
+                        <TableHead>Correo Destino</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead className="text-right">Saldo Pendiente</TableHead>
+                        <TableHead className="text-center">Mora</TableHead>
+                        <TableHead>Disparador Elegible</TableHead>
+                        <TableHead>Canal</TableHead>
+                        <TableHead>Fecha Objetivo de Simulación</TableHead>
+                        <TableHead className="text-right">Técnico</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {simulationPreview.candidate_events.map((candidate, idx) => {
+                        const isExpanded = expandedIdempotencyKey === candidate.idempotency_key;
+                        return (
+                          <React.Fragment key={`${candidate.associate_id}-${idx}`}>
+                            <TableRow className="hover:bg-slate-50/80">
+                              <TableCell>
+                                <div className="font-semibold text-slate-900 text-sm">
+                                  {candidate.full_name}
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-mono">
+                                  {candidate.associate_id.slice(0, 8)}...
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs font-medium text-slate-700">
+                                {candidate.recipient_email || "Sin correo"}
+                              </TableCell>
+                              <TableCell>{getFinancialStatusBadge(candidate.account_status)}</TableCell>
+                              <TableCell className="text-right font-bold text-slate-900">
+                                {formatMoney(candidate.total_outstanding)}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span className="font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-xs">
+                                  {candidate.days_past_due}d
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-50 text-indigo-900 border border-indigo-200">
+                                  {getAutomationTriggerLabel(candidate.automation_type)}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                  {getChannelLabel(candidate.channel)}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs font-medium text-slate-700 font-mono">
+                                {candidate.reference_date}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    setExpandedIdempotencyKey(
+                                      isExpanded ? null : candidate.idempotency_key
+                                    )
+                                  }
+                                  className="text-slate-500 hover:text-slate-900 flex items-center gap-1 ml-auto"
+                                >
+                                  <Code className="w-3 h-3" />
+                                  {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow className="bg-slate-900 text-slate-200 font-mono text-xs">
+                                <TableCell colSpan={9} className="p-3">
+                                  <div className="space-y-1 text-left">
+                                    <div>
+                                      <strong className="text-amber-400">Idempotency Key:</strong> {candidate.idempotency_key}
+                                    </div>
+                                    <div>
+                                      <strong className="text-indigo-300">Scheduled For Marker:</strong> {candidate.scheduled_for}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+
+              {/* Suppressed Events Table */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-amber-600" />
+                      Asociados Suprimidos ({simulationPreview.total_suppressed})
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Detalle de asociados no elegibles y su motivo de supresión operacional
+                    </p>
+                  </div>
+                </div>
+
+                {simulationPreview.suppressed_events.length === 0 ? (
+                  <div className="p-10 text-center text-slate-500 space-y-2">
+                    <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500" />
+                    <p className="text-sm font-bold text-slate-700">
+                      No hay asociados suprimidos en esta simulación.
+                    </p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead>Asociado</TableHead>
+                        <TableHead>Estado Financiero</TableHead>
+                        <TableHead className="text-right">Saldo Pendiente</TableHead>
+                        <TableHead>Estado Cobranza</TableHead>
+                        <TableHead>Motivo de Supresión</TableHead>
+                        <TableHead className="text-right">Hito Evaluado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {simulationPreview.suppressed_events.map((supp, idx) => {
+                        const meta = getSuppressionReasonMeta(supp.suppression_reason);
+                        return (
+                          <TableRow key={`${supp.associate_id}-${idx}`} className="hover:bg-slate-50/80">
+                            <TableCell>
+                              <div className="font-semibold text-slate-900 text-sm">
+                                {supp.full_name}
+                              </div>
+                            </TableCell>
+                            <TableCell>{getFinancialStatusBadge(supp.account_status as AccountStatus)}</TableCell>
+                            <TableCell className="text-right font-bold text-slate-900">
+                              {formatMoney(supp.total_outstanding)}
+                            </TableCell>
+                            <TableCell>{getCollectionStatusBadge(supp.collection_status as DerivedCollectionStatus)}</TableCell>
+                            <TableCell>
+                              <div>
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${meta.badgeClass}`}>
+                                  {meta.label}
+                                </span>
+                                <p className="text-[11px] text-slate-500 mt-1">{meta.description}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {supp.trigger_code ? (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300 font-mono">
+                                  {supp.trigger_code}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-400">N/A</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-4">
+              <Sparkles className="w-10 h-10 mx-auto text-amber-500" />
+              <div className="max-w-md mx-auto space-y-1">
+                <h4 className="text-base font-bold text-slate-900">
+                  Simulación de Automatizaciones Lista
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Haz clic en &quot;Ejecutar Simulación&quot; para evaluar la cohorte actual de asociados contra las reglas operativas de automatización.
+                </p>
+              </div>
+              <Button
+                onClick={() => void runSimulation()}
+                disabled={simulationLoading}
+                className="bg-[#006666] hover:bg-[#004d4d] text-white font-bold cursor-pointer disabled:opacity-50"
+              >
+                {simulationLoading ? "Ejecutando..." : "Ejecutar Simulación Ahora"}
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : activeTab === "SEGUIMIENTOS" ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
           <div className="flex justify-between items-center pb-2 border-b border-slate-100">
             <div>
@@ -696,191 +986,159 @@ export default function CollectionsPortfolioAdminPage() {
           )}
         </div>
       ) : (
-      /* Main Table Section with Controls */
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Controls Bar */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
-          {/* Search Bar */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Buscar por nombre, documento o correo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 bg-white"
-            />
+        /* Main Table Section with Controls */
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* Controls Bar */}
+          <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+            {/* Search Bar */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Buscar por nombre, documento o correo..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 bg-white"
+              />
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={financialStatusFilter}
+                onChange={(e) => setFinancialStatusFilter(e.target.value)}
+                className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
+              >
+                <option value="ALL">Todos Financiero</option>
+                <option value="EN MORA">EN MORA</option>
+                <option value="PENDIENTE">PENDIENTE</option>
+                <option value="AL DÍA">AL DÍA</option>
+              </select>
+
+              <select
+                value={bucketFilter}
+                onChange={(e) => setBucketFilter(e.target.value)}
+                className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
+              >
+                <option value="ALL">Todos Buckets</option>
+                <option value="CURRENT">CURRENT (0d)</option>
+                <option value="1-30 días">1-30 días</option>
+                <option value="31-60 días">31-60 días</option>
+                <option value="61-90 días">61-90 días</option>
+                <option value="91-120 días">91-120 días</option>
+                <option value="+120 días">+120 días</option>
+              </select>
+
+              <select
+                value={collectionStatusFilter}
+                onChange={(e) => setCollectionStatusFilter(e.target.value)}
+                className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
+              >
+                <option value="ALL">Todos Cobranza</option>
+                <option value="SIN_GESTION">Sin gestión</option>
+                <option value="CONTACTADO">Contactado</option>
+                <option value="COMPROMISO_PAGO">Compromiso de pago</option>
+                <option value="SIN_RESPUESTA">Sin respuesta</option>
+                <option value="EN_DISPUTA">En disputa</option>
+                <option value="ESCALADO">Escalado</option>
+                <option value="RESUELTO">Resuelto</option>
+              </select>
+
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value)}
+                className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
+              >
+                <option value="dpd_desc">Mayor Días Mora</option>
+                <option value="outstanding_desc">Mayor Saldo Deuda</option>
+                <option value="oldest_due_asc">Deuda Más Antigua</option>
+                <option value="name_asc">Nombre (A-Z)</option>
+              </select>
+
+              {(searchTerm || financialStatusFilter !== "ALL" || bucketFilter !== "ALL" || collectionStatusFilter !== "ALL" || sortOption !== "dpd_desc") && (
+                <Button variant="ghost" size="sm" onClick={resetFilters} className="text-xs text-slate-500 h-10">
+                  Limpiar
+                </Button>
+              )}
+            </div>
           </div>
 
-          {/* Filters using styled native selects matching project design */}
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={financialStatusFilter}
-              onChange={(e) => setFinancialStatusFilter(e.target.value)}
-              className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
-            >
-              <option value="ALL">Todos Financiero</option>
-              <option value="EN MORA">EN MORA</option>
-              <option value="PENDIENTE">PENDIENTE</option>
-              <option value="AL DÍA">AL DÍA</option>
-            </select>
-
-            <select
-              value={bucketFilter}
-              onChange={(e) => setBucketFilter(e.target.value)}
-              className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
-            >
-              <option value="ALL">Todos Buckets</option>
-              <option value="CURRENT">CURRENT (0d)</option>
-              <option value="1-30 días">1-30 días</option>
-              <option value="31-60 días">31-60 días</option>
-              <option value="61-90 días">61-90 días</option>
-              <option value="91-120 días">91-120 días</option>
-              <option value="+120 días">+120 días</option>
-            </select>
-
-            <select
-              value={collectionStatusFilter}
-              onChange={(e) => setCollectionStatusFilter(e.target.value)}
-              className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
-            >
-              <option value="ALL">Todos Cobranza</option>
-              <option value="SIN_GESTION">Sin gestión</option>
-              <option value="CONTACTADO">Contactado</option>
-              <option value="COMPROMISO_PAGO">Compromiso de pago</option>
-              <option value="SIN_RESPUESTA">Sin respuesta</option>
-              <option value="EN_DISPUTA">En disputa</option>
-              <option value="ESCALADO">Escalado</option>
-              <option value="RESUELTO">Resuelto</option>
-            </select>
-
-            <select
-              value={sortOption}
-              onChange={(e) => setSortOption(e.target.value)}
-              className="h-10 px-3 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 bg-white shadow-xs focus:ring-2 focus:ring-[#006666] outline-none cursor-pointer"
-            >
-              <option value="dpd_desc">Mayor Días Mora</option>
-              <option value="outstanding_desc">Mayor Saldo Deuda</option>
-              <option value="oldest_due_asc">Deuda Más Antigua</option>
-              <option value="name_asc">Nombre (A-Z)</option>
-            </select>
-
-            {(searchTerm || financialStatusFilter !== "ALL" || bucketFilter !== "ALL" || collectionStatusFilter !== "ALL" || sortOption !== "dpd_desc") && (
-              <Button variant="ghost" size="sm" onClick={resetFilters} className="text-xs text-slate-500 h-10">
-                Limpiar
+          {/* Table Content */}
+          {loading ? (
+            <div className="p-16 text-center text-slate-500 space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#006666]" />
+              <p className="text-sm font-medium">Cargando antigüedad de cartera y gestiones de cobranza...</p>
+            </div>
+          ) : error ? (
+            <div className="p-12 text-center text-rose-600 space-y-3 bg-rose-50/50">
+              <AlertTriangle className="w-8 h-8 mx-auto text-rose-500" />
+              <p className="text-sm font-semibold">{error}</p>
+              <Button variant="outline" size="sm" onClick={() => void fetchCollectionsData()}>
+                Reintentar
               </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Table Content */}
-        {loading ? (
-          <div className="p-16 text-center text-slate-500 space-y-3">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#006666]" />
-            <p className="text-sm font-medium">Cargando antigüedad de cartera y gestiones de cobranza...</p>
-          </div>
-        ) : error ? (
-          <div className="p-12 text-center text-rose-600 space-y-3 bg-rose-50/50">
-            <AlertTriangle className="w-8 h-8 mx-auto text-rose-500" />
-            <p className="text-sm font-semibold">{error}</p>
-            <Button variant="outline" size="sm" onClick={() => void fetchCollectionsData()}>
-              Reintentar
-            </Button>
-          </div>
-        ) : filteredAssociates.length === 0 ? (
-          <div className="p-16 text-center text-slate-500 space-y-3">
-            <Filter className="w-8 h-8 mx-auto text-slate-300" />
-            <p className="text-base font-semibold text-slate-700">No se encontraron asociados en la cartera</p>
-            <p className="text-xs text-slate-500">
-              Prueba cambiando o limpiando los filtros aplicados.
-            </p>
-            {(searchTerm || financialStatusFilter !== "ALL" || bucketFilter !== "ALL" || collectionStatusFilter !== "ALL") && (
-              <Button variant="outline" size="sm" onClick={resetFilters}>
-                Limpiar Filtros
-              </Button>
-            )}
-          </div>
-        ) : (
-          <Table>
-            <TableHeader className="bg-slate-50">
-              <TableRow>
-                <TableHead className="w-[240px]">Asociado</TableHead>
-                <TableHead>Estado Financiero</TableHead>
-                <TableHead>Estado Cobranza</TableHead>
-                <TableHead>Seguimiento</TableHead>
-                <TableHead className="text-right">Saldo Deuda</TableHead>
-                <TableHead className="text-center">Días Mora (DPD)</TableHead>
-                <TableHead>Bucket</TableHead>
-                <TableHead>Vencimiento Más Antiguo</TableHead>
-                <TableHead className="text-center">Cargos</TableHead>
-                <TableHead className="text-right">Acción</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAssociates.map((item) => (
-                <TableRow key={item.associate_id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell>
-                    <div className="font-semibold text-slate-900 text-sm">
-                      {item.full_name}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {item.email} {item.document_number ? `• Doc: ${item.document_number}` : ""}
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    {getFinancialStatusBadge(item.account_status)}
-                  </TableCell>
-
-                  <TableCell>
-                    {getCollectionStatusBadge(item.collection_status)}
-                  </TableCell>
-
-                  <TableCell>
-                    {getFollowUpBadge(item.follow_up_state)}
-                  </TableCell>
-
-                  <TableCell className="text-right font-bold text-slate-900">
-                    {formatMoney(item.total_outstanding)}
-                  </TableCell>
-
-                  <TableCell className="text-center">
-                    {item.days_past_due > 0 ? (
-                      <span className="font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-xs">
-                        {item.days_past_due}d
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 text-xs">0d</span>
-                    )}
-                  </TableCell>
-
-                  <TableCell>
-                    <span className="text-xs font-medium text-slate-700">
-                      {item.aging_bucket}
-                    </span>
-                  </TableCell>
-
-                  <TableCell className="text-xs text-slate-600">
-                    {item.oldest_unpaid_due_date || "N/A"}
-                  </TableCell>
-
-                  <TableCell className="text-center font-medium text-xs text-slate-700">
-                    {item.open_charge_count}
-                  </TableCell>
-
-                  <TableCell className="text-right">
-                    <Link href={`/admin/membresias/${item.associate_id}`}>
-                      <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
-                        Ver Detalle <ArrowRight className="w-3 h-3" />
-                      </Button>
-                    </Link>
-                  </TableCell>
+            </div>
+          ) : filteredAssociates.length === 0 ? (
+            <div className="p-16 text-center text-slate-500 space-y-3">
+              <Filter className="w-8 h-8 mx-auto text-slate-300" />
+              <p className="text-base font-semibold text-slate-700">No se encontraron asociados en la cartera</p>
+              <p className="text-xs text-slate-500">
+                Prueba cambiando o limpiando los filtros aplicados.
+              </p>
+              {(searchTerm || financialStatusFilter !== "ALL" || bucketFilter !== "ALL" || collectionStatusFilter !== "ALL") && (
+                <Button variant="outline" size="sm" onClick={resetFilters}>
+                  Limpiar Filtros
+                </Button>
+              )}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-slate-50">
+                <TableRow>
+                  <TableHead className="w-[200px]">Asociado</TableHead>
+                  <TableHead className="w-[120px]">Estado Financiero</TableHead>
+                  <TableHead className="w-[120px] text-right">Saldo Deuda</TableHead>
+                  <TableHead className="w-[90px] text-center">Mora (Días)</TableHead>
+                  <TableHead className="w-[120px]">Bucket Antigüedad</TableHead>
+                  <TableHead className="w-[140px]">Estado Cobranza</TableHead>
+                  <TableHead className="w-[140px]">Seguimiento</TableHead>
+                  <TableHead className="w-[90px] text-right">Ficha</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+              </TableHeader>
+              <TableBody>
+                {filteredAssociates.map((assoc) => (
+                  <TableRow key={assoc.associate_id} className="hover:bg-slate-50/80">
+                    <TableCell>
+                      <div className="font-bold text-slate-900 text-sm">{assoc.full_name}</div>
+                      <div className="text-xs text-slate-500">{assoc.email}</div>
+                      {assoc.document_number && (
+                        <div className="text-[11px] text-slate-400 font-mono">Doc: {assoc.document_number}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>{getFinancialStatusBadge(assoc.account_status)}</TableCell>
+                    <TableCell className="text-right font-extrabold text-slate-900">{formatMoney(assoc.total_outstanding)}</TableCell>
+                    <TableCell className="text-center font-bold">
+                      {assoc.days_past_due > 0 ? (
+                        <span className="text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-xs">{assoc.days_past_due}d</span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">0d</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs font-semibold text-slate-700">{assoc.aging_bucket}</TableCell>
+                    <TableCell>{getCollectionStatusBadge(assoc.collection_status)}</TableCell>
+                    <TableCell>{getFollowUpBadge(assoc.follow_up_state)}</TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/admin/membresias/${assoc.associate_id}`}>
+                        <Button size="xs" variant="outline" className="text-slate-700 border-slate-300">
+                          Ver Ficha
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
       )}
     </div>
   );
