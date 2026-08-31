@@ -105,6 +105,7 @@ export function evaluateAutomationRulesForAssociate(
   evalNowIsoStr?: string
 ): AutomationEvaluationResult {
   const { todayStr, startOfTodayIso } = getBogotaTodayBounds(evalNowIsoStr);
+  const nowMs = evalNowIsoStr ? new Date(evalNowIsoStr).getTime() : new Date().getTime();
 
   // Rule 1: Absolute Suppression for AL DÍA associates
   if (assoc.account_status === "AL DÍA" || assoc.total_outstanding <= 0) {
@@ -137,14 +138,15 @@ export function evaluateAutomationRulesForAssociate(
     };
   }
 
-  // Rule 4: 24-Hour Frequency Cap (QUEUED, SENT, DELIVERED, FAILED within last 24h consume cap)
-  const twentyFourHoursAgoIso = new Date(
-    new Date(startOfTodayIso).getTime() - 24 * 60 * 60 * 1000
-  ).toISOString();
+  // Rule 4: 24-Hour Frequency Cap
+  // Statuses QUEUED, SENT, DELIVERED, BOUNCED, FAILED consume 24h cap. SUPPRESSED & DRY_RUN do NOT.
+  const twentyFourHoursAgoMs = nowMs - 24 * 60 * 60 * 1000;
 
-  const hasRecentNotification = recentEventsForAssociate.some(
-    (e) => e.status !== "SUPPRESSED" && e.status !== "DRY_RUN" && e.scheduled_for >= twentyFourHoursAgoIso
-  );
+  const hasRecentNotification = recentEventsForAssociate.some((e) => {
+    if (e.status === "SUPPRESSED" || e.status === "DRY_RUN") return false;
+    const schedMs = new Date(e.scheduled_for).getTime();
+    return schedMs > twentyFourHoursAgoMs;
+  });
 
   if (hasRecentNotification) {
     return {
@@ -153,16 +155,16 @@ export function evaluateAutomationRulesForAssociate(
     };
   }
 
-  // Helper set of already triggered automation types for this associate
-  const sentTypesSet = new Set(
+  // Set of all logical notifications already registered in history (QUEUED, SENT, DELIVERED, BOUNCED, FAILED, SUPPRESSED)
+  const registeredTypesSet = new Set(
     recentEventsForAssociate
-      .filter((e) => e.status !== "SUPPRESSED" && e.status !== "DRY_RUN")
+      .filter((e) => e.status !== "DRY_RUN")
       .map((e) => e.automation_type)
   );
 
-  // Rule 5: Evaluate Payment Promises Precedence
-  if (promiseItem && (promiseItem.promise_status === "ACTIVE" || promiseItem.promise_status === "DUE_TODAY" || promiseItem.promise_status === "OVERDUE")) {
-    if (!promiseItem.promised_payment_date) {
+  // Rule 5: Evaluate Payment Promises Precedence (POLICY A: UNSCHEDULED suppresses external outreach)
+  if (promiseItem && promiseItem.promise_status !== "FULFILLED" && promiseItem.promise_status !== "SUPERSEDED") {
+    if (!promiseItem.promised_payment_date || promiseItem.promise_status === "UNSCHEDULED") {
       return {
         eligible: false,
         suppressionReason: "SUPPRESSED_UNSCHEDULED_PAYMENT_PROMISE",
@@ -171,7 +173,14 @@ export function evaluateAutomationRulesForAssociate(
 
     if (promiseItem.promise_status === "ACTIVE") {
       const target1dDate = addDaysToDateString(todayStr, 1);
-      if (promiseItem.promised_payment_date === target1dDate && !sentTypesSet.has("PROMISE_1D")) {
+      if (promiseItem.promised_payment_date === target1dDate) {
+        if (registeredTypesSet.has("PROMISE_1D")) {
+          return {
+            eligible: false,
+            suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+            triggerCode: "PROMISE_1D",
+          };
+        }
         const trigger: AutomationTriggerCode = "PROMISE_1D";
         return {
           eligible: true,
@@ -198,6 +207,13 @@ export function evaluateAutomationRulesForAssociate(
     }
 
     if (promiseItem.promise_status === "DUE_TODAY") {
+      if (registeredTypesSet.has("PROMISE_DUE")) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+          triggerCode: "PROMISE_DUE",
+        };
+      }
       const trigger: AutomationTriggerCode = "PROMISE_DUE";
       const refDate = promiseItem.promised_payment_date;
       return {
@@ -218,6 +234,13 @@ export function evaluateAutomationRulesForAssociate(
     }
 
     if (promiseItem.promise_status === "OVERDUE") {
+      if (registeredTypesSet.has("PROMISE_BROKEN")) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+          triggerCode: "PROMISE_BROKEN",
+        };
+      }
       const trigger: AutomationTriggerCode = "PROMISE_BROKEN";
       const refDate = promiseItem.promised_payment_date;
       return {
@@ -238,24 +261,36 @@ export function evaluateAutomationRulesForAssociate(
     }
   }
 
-  // Rule 6: Evaluate Overdue Debt Reminders with Catch-Up Selection & Milestone Reference Dates
+  // Rule 6: Evaluate Overdue Debt Reminders with Catch-Up & Explicit Already-Registered Tracking
   if (assoc.account_status === "EN MORA" && assoc.days_past_due > 0) {
     let trigger: AutomationTriggerCode | null = null;
     let offsetDays = 0;
-    let channel: AutomationChannel = "email";
+    let primaryMilestone: AutomationTriggerCode | null = null;
 
-    if (assoc.days_past_due >= 30 && !sentTypesSet.has("OVERDUE_30D")) {
-      trigger = "OVERDUE_30D";
-      offsetDays = 30;
-    } else if (assoc.days_past_due >= 15 && !sentTypesSet.has("OVERDUE_15D")) {
-      trigger = "OVERDUE_15D";
-      offsetDays = 15;
-    } else if (assoc.days_past_due >= 7 && !sentTypesSet.has("OVERDUE_7D")) {
-      trigger = "OVERDUE_7D";
-      offsetDays = 7;
-    } else if (assoc.days_past_due >= 1 && !sentTypesSet.has("OVERDUE_1D")) {
-      trigger = "OVERDUE_1D";
-      offsetDays = 1;
+    if (assoc.days_past_due >= 30) {
+      primaryMilestone = "OVERDUE_30D";
+      if (!registeredTypesSet.has("OVERDUE_30D")) {
+        trigger = "OVERDUE_30D";
+        offsetDays = 30;
+      }
+    } else if (assoc.days_past_due >= 15) {
+      primaryMilestone = "OVERDUE_15D";
+      if (!registeredTypesSet.has("OVERDUE_15D")) {
+        trigger = "OVERDUE_15D";
+        offsetDays = 15;
+      }
+    } else if (assoc.days_past_due >= 7) {
+      primaryMilestone = "OVERDUE_7D";
+      if (!registeredTypesSet.has("OVERDUE_7D")) {
+        trigger = "OVERDUE_7D";
+        offsetDays = 7;
+      }
+    } else if (assoc.days_past_due >= 1) {
+      primaryMilestone = "OVERDUE_1D";
+      if (!registeredTypesSet.has("OVERDUE_1D")) {
+        trigger = "OVERDUE_1D";
+        offsetDays = 1;
+      }
     }
 
     if (trigger) {
@@ -266,10 +301,10 @@ export function evaluateAutomationRulesForAssociate(
       return {
         eligible: true,
         triggerCode: trigger,
-        channel,
+        channel: "email",
         candidateEvent: {
           associate_id: assoc.associate_id,
-          channel,
+          channel: "email",
           automation_type: trigger,
           reference_date: refDate,
           status: "QUEUED",
@@ -277,6 +312,12 @@ export function evaluateAutomationRulesForAssociate(
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
+      };
+    } else if (primaryMilestone && registeredTypesSet.has(primaryMilestone)) {
+      return {
+        eligible: false,
+        suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+        triggerCode: primaryMilestone,
       };
     }
   }
@@ -287,7 +328,14 @@ export function evaluateAutomationRulesForAssociate(
     const date5d = addDaysToDateString(todayStr, 5);
     const date1d = addDaysToDateString(todayStr, 1);
 
-    if (dueDate === date5d && !sentTypesSet.has("PRE_DUE_5D")) {
+    if (dueDate === date5d) {
+      if (registeredTypesSet.has("PRE_DUE_5D")) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+          triggerCode: "PRE_DUE_5D",
+        };
+      }
       const trigger: AutomationTriggerCode = "PRE_DUE_5D";
       return {
         eligible: true,
@@ -306,7 +354,14 @@ export function evaluateAutomationRulesForAssociate(
       };
     }
 
-    if (dueDate === date1d && !sentTypesSet.has("PRE_DUE_1D")) {
+    if (dueDate === date1d) {
+      if (registeredTypesSet.has("PRE_DUE_1D")) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+          triggerCode: "PRE_DUE_1D",
+        };
+      }
       const trigger: AutomationTriggerCode = "PRE_DUE_1D";
       return {
         eligible: true,
@@ -325,7 +380,14 @@ export function evaluateAutomationRulesForAssociate(
       };
     }
 
-    if (dueDate === todayStr && !sentTypesSet.has("DUE_DATE")) {
+    if (dueDate === todayStr) {
+      if (registeredTypesSet.has("DUE_DATE")) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
+          triggerCode: "DUE_DATE",
+        };
+      }
       const trigger: AutomationTriggerCode = "DUE_DATE";
       return {
         eligible: true,
