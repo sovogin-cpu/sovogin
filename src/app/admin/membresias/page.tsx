@@ -145,6 +145,14 @@ export default function MembershipsAdminPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <Link href="/admin/membresias/cartera">
+            <Button
+              className="h-12 px-5 rounded-xl bg-[#006666] text-white hover:bg-[#005555] gap-2 font-bold shadow-xs"
+            >
+              <TrendingDown className="w-5 h-5 text-amber-300" />
+              Cartera y Cobranza
+            </Button>
+          </Link>
           <Link href="/admin/membresias/facturacion">
             <Button
               variant="outline"
