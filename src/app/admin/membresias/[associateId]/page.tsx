@@ -20,7 +20,15 @@ import {
   RefreshCw,
   RotateCcw,
   Sliders,
+  PhoneCall,
+  PlusCircle,
 } from "lucide-react";
+import {
+  CollectionTimeline,
+  ExtendedCollectionAction,
+} from "@/components/admin/collections/CollectionTimeline";
+import { CollectionActionFormDialog } from "@/components/admin/collections/CollectionActionFormDialog";
+import { DerivedCollectionStatus, FollowUpState } from "@/lib/collections/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,9 +64,15 @@ export default function AssociateMembershipDetailPage() {
 
   const [ledgerDetail, setLedgerDetail] = useState<MembershipLedgerDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"RESUMEN" | "CARGOS" | "PAGOS" | "AJUSTES" | "HISTORIAL">(
+  const [activeTab, setActiveTab] = useState<"RESUMEN" | "CARGOS" | "PAGOS" | "AJUSTES" | "HISTORIAL" | "COBRANZA">(
     "RESUMEN"
   );
+
+  // Collections state
+  const [collectionActions, setCollectionActions] = useState<ExtendedCollectionAction[]>([]);
+  const [collectionStatus, setCollectionStatus] = useState<DerivedCollectionStatus>("SIN_GESTION");
+  const [followUpState, setFollowUpState] = useState<FollowUpState>("NONE");
+  const [isRegisterActionModalOpen, setIsRegisterActionModalOpen] = useState(false);
 
   // Available options
   const [activePlans, setActivePlans] = useState<MembershipPlan[]>([]);
@@ -135,9 +149,27 @@ export default function AssociateMembershipDetailPage() {
     }
   }, [associateId]);
 
+  const fetchCollectionActions = useCallback(async () => {
+    if (!associateId) return;
+
+    try {
+      const res = await fetch(`/api/admin/collections/${associateId}/actions`);
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setCollectionActions(data.actions || []);
+        if (data.collection_status) setCollectionStatus(data.collection_status);
+        if (data.follow_up_state) setFollowUpState(data.follow_up_state);
+      }
+    } catch (err: unknown) {
+      console.error("Error al cargar gestiones de cobranza:", err);
+    }
+  }, [associateId]);
+
   useEffect(() => {
     void fetchLedgerDetail();
-  }, [fetchLedgerDetail]);
+    void fetchCollectionActions();
+  }, [fetchLedgerDetail, fetchCollectionActions]);
 
   const loadModalOptions = async () => {
     try {
@@ -580,6 +612,14 @@ export default function AssociateMembershipDetailPage() {
             <DollarSign className="w-4 h-4" />
             <span>Registrar Pago</span>
           </Button>
+
+          <Button
+            onClick={() => setIsRegisterActionModalOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 h-11 px-4 rounded-xl font-bold text-white text-xs gap-2 shadow-md shadow-blue-600/20"
+          >
+            <PhoneCall className="w-4 h-4" />
+            <span>Registrar Gestión</span>
+          </Button>
         </div>
       </div>
 
@@ -684,6 +724,7 @@ export default function AssociateMembershipDetailPage() {
           { id: "PAGOS", label: `Pagos (${payments.length})`, icon: DollarSign },
           { id: "AJUSTES", label: `Ajustes (${adjustments.length})`, icon: TrendingDown },
           { id: "HISTORIAL", label: `Historial Plan (${plan_changes.length})`, icon: History },
+          { id: "COBRANZA", label: `Cobranza & Gestiones (${collectionActions.length})`, icon: PhoneCall },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1041,7 +1082,91 @@ export default function AssociateMembershipDetailPage() {
             </Table>
           </div>
         )}
+
+        {/* TAB: COBRANZA & GESTIONES */}
+        {activeTab === "COBRANZA" && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Estado de Cartera & Bitácora de Gestiones</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Historial inmutable de gestiones telefónicas, correos y promesas de pago registradas.
+                </p>
+              </div>
+              <Button
+                onClick={() => setIsRegisterActionModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 font-bold text-xs gap-1.5 h-10 px-4 rounded-xl text-white shadow-sm"
+              >
+                <PlusCircle className="w-4 h-4" /> Registrar Nueva Gestión
+              </Button>
+            </div>
+
+            {/* Cards de Estado Derivado & Seguimiento */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                  Estado de Cobranza
+                </span>
+                <div className="pt-1">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                    {collectionStatus}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                  Estado de Próximo Seguimiento
+                </span>
+                <div className="pt-1">
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${
+                    followUpState === "DUE"
+                      ? "bg-rose-50 text-rose-800 border-rose-200"
+                      : followUpState === "SCHEDULED"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-slate-100 text-slate-700 border-slate-200"
+                  }`}>
+                    {followUpState === "DUE"
+                      ? "Seguimiento Vencido"
+                      : followUpState === "SCHEDULED"
+                      ? "Seguimiento Agendado"
+                      : "Sin Seguimiento"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                  Total Gestiones Registradas
+                </span>
+                <div className="text-xl font-black text-slate-800">
+                  {collectionActions.length} interacciones
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <h4 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 mb-4">
+                Línea de Tiempo de Interacciones (Timeline)
+              </h4>
+              <CollectionTimeline actions={collectionActions} />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* DIALOG DE GESTIÓN DE COBRANZA */}
+      <CollectionActionFormDialog
+        associateId={associate.id}
+        associateName={associate.full_name}
+        open={isRegisterActionModalOpen}
+        onOpenChange={setIsRegisterActionModalOpen}
+        onSuccess={() => {
+          void fetchCollectionActions();
+          void fetchLedgerDetail();
+        }}
+      />
 
       {/* MODAL 1: EMITIR CARGO MANUAL */}
       <Dialog open={isCreateChargeModalOpen} onOpenChange={setIsCreateChargeModalOpen}>

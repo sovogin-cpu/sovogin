@@ -104,3 +104,32 @@ export function deriveFollowUpState(
 
   return "DUE";
 }
+
+/**
+ * Converts a `datetime-local` input string (e.g. "2026-09-02T09:00")
+ * strictly representing an operational timestamp in Colombia (America/Bogota, UTC-5)
+ * into a deterministic UTC ISO 8601 string (e.g. "2026-09-02T14:00:00.000Z"),
+ * completely independent of the browser or machine timezone.
+ */
+export function parseBogotaDateTimeToUtcIso(datetimeLocalStr: string | null | undefined): string | null {
+  if (!datetimeLocalStr || typeof datetimeLocalStr !== "string") return null;
+  const clean = datetimeLocalStr.trim();
+  if (!clean) return null;
+
+  // Match YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  const regex = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?$/;
+  const match = clean.match(regex);
+  if (!match) {
+    // If it's already a full ISO string with Z or offset, parse directly
+    const directDate = new Date(clean);
+    return !isNaN(directDate.getTime()) ? directDate.toISOString() : null;
+  }
+
+  const [, datePart, timePart, secPart = "00"] = match;
+  // Colombia is always UTC-5 (-05:00) without Daylight Saving Time.
+  const bogotaIsoWithOffset = `${datePart}T${timePart}:${secPart}-05:00`;
+  const dateObj = new Date(bogotaIsoWithOffset);
+  if (isNaN(dateObj.getTime())) return null;
+
+  return dateObj.toISOString();
+}
