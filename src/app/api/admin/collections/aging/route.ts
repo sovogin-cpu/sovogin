@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     if (uniqueAssociateIds.length > 0) {
       const { data: actionsData, error: actionsErr } = await supabase
         .from("collection_actions")
-        .select("id, associate_id, action_type, result_status, next_follow_up_at, created_at")
+        .select("id, associate_id, action_type, result_status, promised_payment_date, promised_payment_amount, next_follow_up_at, created_at")
         .in("associate_id", uniqueAssociateIds)
         .order("created_at", { ascending: false })
         .order("id", { ascending: true });
