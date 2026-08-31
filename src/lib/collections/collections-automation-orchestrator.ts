@@ -30,10 +30,13 @@ export interface AutomationSuppressionPreview {
   associate_id: string;
   full_name: string;
   suppression_reason: string;
-  account_status: string;
+  account_status: "AL DÍA" | "PENDIENTE" | "EN MORA";
   total_outstanding: number;
   days_past_due: number;
   collection_status: string;
+  follow_up_state: string;
+  promise_status?: string | null;
+  automation_type?: AutomationTriggerCode | null;
 }
 
 export interface AutomationDryRunPreview {
@@ -55,36 +58,51 @@ export interface DryRunOrchestratorDataSources {
   fetchNotificationHistory: (associateIds: string[]) => Promise<NotificationEventRecord[]>;
 }
 
-/**
- * Pure Server-Side Orchestrator for Collections Automation Dry-Run Preview.
- * Strictly READ-ONLY: 0 inserts, 0 updates, 0 deletes, 0 provider calls.
- */
 export async function runAutomationDryRunOrchestrator(
-  dataSources: DryRunOrchestratorDataSources,
-  evalNowIsoStr?: string
+  sources: DryRunOrchestratorDataSources,
+  evalNowIso?: string
 ): Promise<AutomationDryRunPreview> {
-  const { todayStr } = getBogotaTodayBounds(evalNowIsoStr);
-  const nowIso = evalNowIsoStr || new Date().toISOString();
+  const nowIso = evalNowIso || new Date().toISOString();
+  const { todayStr } = getBogotaTodayBounds(nowIso);
 
-  // Step 1: Batch Data Fetching (Max 3 queries, no N+1)
-  const associates = await dataSources.fetchAssociates();
-  const associateIds = associates.map((a) => a.associate_id);
+  // Step 1: Batch Fetch Associates & Payment Promises
+  const associates = await sources.fetchAssociates();
+  const allPromises = await sources.fetchPromises();
 
-  const promises = await dataSources.fetchPromises();
-  const history = associateIds.length > 0 ? await dataSources.fetchNotificationHistory(associateIds) : [];
-
-  // Step 2: Index Batch Data in Memory
-  const promiseMap: Record<string, PaymentPromiseItem> = {};
-  for (const p of promises) {
-    promiseMap[p.associate_id] = p;
+  if (!associates || associates.length === 0) {
+    return {
+      generated_at: nowIso,
+      timezone: "America/Bogota",
+      eval_date: todayStr,
+      total_associates_scanned: 0,
+      total_candidates: 0,
+      total_suppressed: 0,
+      candidate_events: [],
+      suppressed_events: [],
+      summary_by_trigger: {},
+      summary_by_suppression: {},
+    };
   }
 
-  const historyMap: Record<string, NotificationEventRecord[]> = {};
-  for (const h of history) {
-    if (!historyMap[h.associate_id]) {
-      historyMap[h.associate_id] = [];
+  const promiseMap: Record<string, PaymentPromiseItem> = {};
+  for (const p of allPromises || []) {
+    if (p && p.associate_id) {
+      promiseMap[p.associate_id] = p;
     }
-    historyMap[h.associate_id].push(h);
+  }
+
+  // Step 2: Batch Fetch Notification History for scanned associate IDs (0 N+1)
+  const associateIds = associates.map((a) => a.associate_id);
+  const allHistory = await sources.fetchNotificationHistory(associateIds);
+
+  const historyMap: Record<string, NotificationEventRecord[]> = {};
+  for (const h of allHistory || []) {
+    if (h && h.associate_id) {
+      if (!historyMap[h.associate_id]) {
+        historyMap[h.associate_id] = [];
+      }
+      historyMap[h.associate_id].push(h);
+    }
   }
 
   // Step 3: Domain Evaluation & Preview Generation
@@ -101,7 +119,7 @@ export async function runAutomationDryRunOrchestrator(
       assoc,
       assocPromise,
       assocHistory,
-      evalNowIsoStr
+      nowIso
     );
 
     if (evalResult.eligible && evalResult.candidateEvent) {
@@ -143,6 +161,9 @@ export async function runAutomationDryRunOrchestrator(
         total_outstanding: assoc.total_outstanding,
         days_past_due: assoc.days_past_due,
         collection_status: assoc.collection_status,
+        follow_up_state: assoc.follow_up_state,
+        promise_status: assocPromise?.promise_status || null,
+        automation_type: evalResult.triggerCode || null,
       });
 
       summaryBySuppression[reason] = (summaryBySuppression[reason] || 0) + 1;
