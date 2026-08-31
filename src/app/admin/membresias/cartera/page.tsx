@@ -36,6 +36,13 @@ import {
 import { PortfolioAgingSummary, AgingBucket, AccountStatus } from "@/lib/memberships/aging-engine";
 import { DerivedCollectionStatus, FollowUpState, CollectionAction } from "@/lib/collections/types";
 import { getOverduePortfolioAmount } from "@/lib/collections/collections-dashboard-service";
+import {
+  calculateOperationalKPIs,
+  getFollowUpQueue,
+  getPaymentPromisesMonitor,
+  FollowUpQueueItem,
+  PaymentPromiseItem,
+} from "@/lib/collections/collections-queue-service";
 
 interface EnrichedAssociateItem {
   associate_id: string;
@@ -66,12 +73,35 @@ export default function CollectionsPortfolioAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Client-side Filter States
+  // Client-side Operational Tabs & Filter States
+  const [activeTab, setActiveTab] = useState<"CARTERA" | "SEGUIMIENTOS" | "PROMESAS">("CARTERA");
   const [searchTerm, setSearchTerm] = useState("");
   const [financialStatusFilter, setFinancialStatusFilter] = useState<string>("ALL");
   const [bucketFilter, setBucketFilter] = useState<string>("ALL");
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<string>("ALL");
   const [sortOption, setSortOption] = useState<string>("dpd_desc");
+
+  const actionsByAssociateId = useMemo(() => {
+    const map: Record<string, CollectionAction[]> = {};
+    associates.forEach((a) => {
+      if (a.latest_collection_action) {
+        map[a.associate_id] = [a.latest_collection_action];
+      }
+    });
+    return map;
+  }, [associates]);
+
+  const followUpQueue = useMemo(() => {
+    return getFollowUpQueue(associates);
+  }, [associates]);
+
+  const promiseMonitor = useMemo(() => {
+    return getPaymentPromisesMonitor(associates, actionsByAssociateId);
+  }, [associates, actionsByAssociateId]);
+
+  const operationalKPIs = useMemo(() => {
+    return calculateOperationalKPIs(associates, actionsByAssociateId);
+  }, [associates, actionsByAssociateId]);
 
   const fetchCollectionsData = useCallback(async () => {
     setLoading(true);
@@ -422,7 +452,251 @@ export default function CollectionsPortfolioAdminPage() {
         </div>
       )}
 
-      {/* Main Table Section with Controls */}
+      {/* Operational KPIs Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-rose-600 block">Seguimientos Vencidos</span>
+          <span className="text-xl font-black text-rose-900">{operationalKPIs.follow_ups_overdue_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-blue-600 block">Seguimientos Hoy</span>
+          <span className="text-xl font-black text-blue-900">{operationalKPIs.follow_ups_today_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-emerald-600 block">Promesas Activas</span>
+          <span className="text-xl font-black text-emerald-900">{operationalKPIs.promises_active_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-amber-600 block">Promesas Vencidas</span>
+          <span className="text-xl font-black text-amber-900">{operationalKPIs.promises_overdue_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-purple-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-purple-600 block">Casos Escalados</span>
+          <span className="text-xl font-black text-purple-900">{operationalKPIs.escalated_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-rose-700 block">Casos en Disputa</span>
+          <span className="text-xl font-black text-rose-950">{operationalKPIs.disputed_count}</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-slate-500 block">Sin Gestión</span>
+          <span className="text-xl font-black text-slate-800">{operationalKPIs.sin_gestion_count}</span>
+        </div>
+      </div>
+
+      {/* Operational Sub-Tabs Navigation */}
+      <div className="flex border-b border-slate-200 gap-6">
+        <button
+          onClick={() => setActiveTab("CARTERA")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "CARTERA"
+              ? "border-[#006666] text-[#006666]"
+              : "border-transparent text-slate-400 hover:text-slate-700"
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Vista General de Cartera</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("SEGUIMIENTOS")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "SEGUIMIENTOS"
+              ? "border-[#006666] text-[#006666]"
+              : "border-transparent text-slate-400 hover:text-slate-700"
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Cola de Seguimientos ({followUpQueue.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("PROMESAS")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "PROMESAS"
+              ? "border-[#006666] text-[#006666]"
+              : "border-transparent text-slate-400 hover:text-slate-700"
+          }`}
+        >
+          <DollarSign className="w-4 h-4" />
+          <span>Monitor de Promesas ({promiseMonitor.length})</span>
+        </button>
+      </div>
+
+      {/* Render Active Tab Content */}
+      {activeTab === "SEGUIMIENTOS" ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Cola Operativa de Seguimientos Agendados</h3>
+              <p className="text-xs text-slate-500">Ordenados por prioridad: Vencidos (America/Bogota) → Hoy → Mayor Deuda</p>
+            </div>
+            <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+              {followUpQueue.length} asociados pendientes de seguimiento
+            </span>
+          </div>
+
+          {followUpQueue.length === 0 ? (
+            <div className="p-12 text-center text-slate-500 space-y-2">
+              <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500" />
+              <p className="text-sm font-bold text-slate-700">No hay seguimientos pendientes en la cola</p>
+              <p className="text-xs text-slate-400">Todos los seguimientos están al día o no tienen fecha agendada.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-slate-50">
+                <TableRow>
+                  <TableHead>Prioridad / Urgencia</TableHead>
+                  <TableHead>Asociado</TableHead>
+                  <TableHead>Fecha Agendada (Bogotá)</TableHead>
+                  <TableHead className="text-right">Saldo Deuda</TableHead>
+                  <TableHead className="text-center">Días Mora</TableHead>
+                  <TableHead>Estado Cobranza</TableHead>
+                  <TableHead className="text-right">Acción</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {followUpQueue.map((item) => {
+                  const formattedDate = new Date(item.follow_up_date).toLocaleString("es-CO", {
+                    timeZone: "America/Bogota",
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  });
+
+                  return (
+                    <TableRow key={item.associate_id} className="hover:bg-slate-50/80">
+                      <TableCell>
+                        {item.follow_up_urgency === "OVERDUE" ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-100 text-rose-800 border border-rose-300 inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-rose-600" /> VENCIDO
+                          </span>
+                        ) : item.follow_up_urgency === "DUE_TODAY" ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 border border-blue-300 inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-blue-600" /> VENCE HOY
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-700 border border-slate-300">
+                            PRÓXIMO
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-slate-900 text-sm">{item.full_name}</div>
+                        <div className="text-xs text-slate-500">{item.email}</div>
+                      </TableCell>
+                      <TableCell className="font-medium text-slate-900 text-xs">{formattedDate}</TableCell>
+                      <TableCell className="text-right font-bold text-slate-900">{formatMoney(item.total_outstanding)}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded text-xs">{item.days_past_due}d</span>
+                      </TableCell>
+                      <TableCell>{getCollectionStatusBadge(item.collection_status)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/admin/membresias/${item.associate_id}`}>
+                          <Button size="xs" className="bg-[#006666] hover:bg-[#004d4d] text-white">
+                            Gestionar
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      ) : activeTab === "PROMESAS" ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Monitor de Promesas de Pago</h3>
+              <p className="text-xs text-slate-500">Clasificación operacional de compromisos acordados con los asociados</p>
+            </div>
+            <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+              {promiseMonitor.length} promesas registradas
+            </span>
+          </div>
+
+          {promiseMonitor.length === 0 ? (
+            <div className="p-12 text-center text-slate-500 space-y-2">
+              <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500" />
+              <p className="text-sm font-bold text-slate-700">No hay promesas de pago registradas</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-slate-50">
+                <TableRow>
+                  <TableHead>Estado Promesa</TableHead>
+                  <TableHead>Asociado</TableHead>
+                  <TableHead>Fecha Prometida</TableHead>
+                  <TableHead className="text-right">Monto Prometido</TableHead>
+                  <TableHead className="text-right">Saldo Actual Deuda</TableHead>
+                  <TableHead className="text-right">Acción</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {promiseMonitor.map((item) => (
+                  <TableRow key={item.associate_id} className="hover:bg-slate-50/80">
+                    <TableCell>
+                      {item.promise_status === "FULFILLED" ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> CUMPLIDA
+                        </span>
+                      ) : item.promise_status === "OVERDUE" ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-100 text-rose-800 border border-rose-300 inline-flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-rose-600" /> VENCIDA
+                        </span>
+                      ) : item.promise_status === "DUE_TODAY" ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" /> VENCE HOY
+                        </span>
+                      ) : item.promise_status === "UNSCHEDULED" ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-50 text-amber-900 border border-amber-300">
+                          SIN FECHA
+                        </span>
+                      ) : item.promise_status === "SUPERSEDED" ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-600 border border-slate-300">
+                          SUSTITUIDA
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 border border-blue-300">
+                          VIGENTE
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-semibold text-slate-900 text-sm">{item.full_name}</div>
+                      <div className="text-xs text-slate-500">{item.email}</div>
+                    </TableCell>
+                    <TableCell className="font-medium text-slate-900 text-xs">
+                      {item.promised_payment_date || "No especificada"}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-slate-900">
+                      {item.promised_payment_amount ? formatMoney(item.promised_payment_amount) : "N/A"}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-slate-900">
+                      {formatMoney(item.total_outstanding)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/admin/membresias/${item.associate_id}`}>
+                        <Button size="xs" className="bg-[#006666] hover:bg-[#004d4d] text-white">
+                          Ver Ficha
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      ) : (
+      /* Main Table Section with Controls */
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Controls Bar */}
         <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
@@ -607,6 +881,7 @@ export default function CollectionsPortfolioAdminPage() {
           </Table>
         )}
       </div>
+      )}
     </div>
   );
 }
