@@ -1,6 +1,9 @@
+import { AccountStatus } from "../memberships/aging-engine";
+import { DerivedCollectionStatus, FollowUpState } from "./types";
 import { EnrichedAssociateAgingItem } from "./collections-dashboard-service";
-import { PaymentPromiseItem } from "./collections-queue-service";
-import { getBogotaTodayBounds } from "./collections-queue-service";
+import { PaymentPromiseItem, getBogotaTodayBounds } from "./collections-queue-service";
+
+export type AutomationChannel = "email" | "internal_alert" | "whatsapp" | "sms";
 
 export type AutomationTriggerCode =
   | "PRE_DUE_5D"
@@ -14,100 +17,106 @@ export type AutomationTriggerCode =
   | "PROMISE_DUE"
   | "PROMISE_BROKEN";
 
-export type AutomationChannel = "email" | "internal_alert" | "whatsapp" | "sms";
+export type AutomationEventStatus = "QUEUED" | "SENT" | "DELIVERED" | "BOUNCED" | "FAILED" | "SUPPRESSED" | "DRY_RUN";
 
-export type AutomationStatus =
-  | "QUEUED"
-  | "SENT"
-  | "DELIVERED"
-  | "BOUNCED"
-  | "FAILED"
-  | "SUPPRESSED"
-  | "DRY_RUN";
+export type AutomationSuppressionReason =
+  | "SUPPRESSED_ACCOUNT_AL_DIA"
+  | "SUPPRESSED_COLLECTION_IN_DISPUTE"
+  | "SUPPRESSED_COLLECTION_ESCALATED"
+  | "SUPPRESSED_INVALID_CONTACT_EMAIL"
+  | "SUPPRESSED_24H_FREQUENCY_CAP"
+  | "SUPPRESSED_ACTIVE_PAYMENT_PROMISE"
+  | "SUPPRESSED_UNSCHEDULED_PAYMENT_PROMISE"
+  | "SUPPRESSED_MILESTONE_ALREADY_REGISTERED"
+  | "NO_MATCHING_AUTOMATION_TRIGGER";
 
 export interface NotificationEventRecord {
   id?: string;
   associate_id: string;
   channel: AutomationChannel;
   automation_type: AutomationTriggerCode;
-  reference_date: string; // YYYY-MM-DD
-  status: AutomationStatus;
+  reference_date: string;
+  status: AutomationEventStatus;
   provider_message_id?: string | null;
   recipient_email?: string | null;
-  scheduled_for: string; // TIMESTAMPTZ
+  scheduled_for: string;
   sent_at?: string | null;
   attempt_count?: number;
   last_attempt_at?: string | null;
   next_retry_at?: string | null;
-  suppression_reason?: string | null;
+  suppression_reason?: AutomationSuppressionReason | string | null;
   failure_reason?: string | null;
   created_at?: string;
   updated_at?: string;
 }
 
+export interface AutomationCandidateEvent {
+  associate_id: string;
+  channel: AutomationChannel;
+  automation_type: AutomationTriggerCode;
+  reference_date: string;
+  status: "QUEUED" | "DRY_RUN";
+  recipient_email?: string | null;
+  scheduled_for: string;
+  attempt_count: 1;
+}
+
 export interface AutomationEvaluationResult {
   eligible: boolean;
-  triggerCode?: AutomationTriggerCode;
-  channel?: AutomationChannel;
-  suppressionReason?: string;
-  candidateEvent?: NotificationEventRecord;
+  triggerCode?: AutomationTriggerCode | null;
+  channel?: AutomationChannel | null;
+  candidateEvent?: AutomationCandidateEvent | null;
+  suppressionReason?: AutomationSuppressionReason | null;
 }
 
-export interface DryRunSummary {
-  evalDate: string;
-  totalAssociatesScanned: number;
-  totalCandidates: number;
-  totalSuppressed: number;
-  candidateEvents: NotificationEventRecord[];
-  suppressedEvents: { associate_id: string; reason: string; triggerCode?: string }[];
+export interface AutomationSuppressionRecord {
+  associate_id: string;
+  full_name: string;
+  account_status: AccountStatus;
+  total_outstanding: number;
+  collection_status: DerivedCollectionStatus;
+  follow_up_state: FollowUpState;
+  promise_status: string | null;
+  suppression_reason: AutomationSuppressionReason;
+  automation_type?: AutomationTriggerCode;
 }
 
-/**
- * Returns a deterministic composite idempotency key for deduplication.
- */
+export function isValidEmailSyntax(email: string | null | undefined): boolean {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim();
+  if (trimmed.length < 5 || trimmed.length > 254) return false;
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  return emailRegex.test(trimmed);
+}
+
 export function generateIdempotencyKey(
   associateId: string,
-  automationType: string,
+  automationType: AutomationTriggerCode,
   referenceDate: string,
-  channel: string
+  channel: AutomationChannel
 ): string {
   return `${associateId}:${automationType}:${referenceDate}:${channel}`;
 }
 
-/**
- * Validates syntax of an email address.
- */
-export function isValidEmailSyntax(email: string | null | undefined): boolean {
-  if (!email || typeof email !== "string") return false;
-  const clean = email.trim();
-  if (!clean || clean.length < 5) return false;
-  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return regex.test(clean);
+function addDaysToDateString(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-/**
- * Helper to add days to a YYYY-MM-DD date string deterministically.
- */
-export function addDaysToDateString(dateStr: string, days: number): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const d = new Date(Date.UTC(year, month - 1, day));
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
-/**
- * Evaluates operational automation triggers and suppression rules for a single associate.
- */
 export function evaluateAutomationRulesForAssociate(
   assoc: EnrichedAssociateAgingItem,
   promiseItem: PaymentPromiseItem | null,
-  recentEventsForAssociate: NotificationEventRecord[] = [],
+  recentEventsForAssociate: NotificationEventRecord[],
   evalNowIsoStr?: string
 ): AutomationEvaluationResult {
+  const nowMs = evalNowIsoStr ? new Date(evalNowIsoStr).getTime() : Date.now();
   const { todayStr, startOfTodayIso } = getBogotaTodayBounds(evalNowIsoStr);
-  const nowMs = evalNowIsoStr ? new Date(evalNowIsoStr).getTime() : new Date().getTime();
 
-  // Rule 1: Absolute Suppression for AL DÍA associates
+  // Rule 1: Absolute Suppression for AL DÍA
   if (assoc.account_status === "AL DÍA" || assoc.total_outstanding <= 0) {
     return {
       eligible: false,
@@ -115,14 +124,13 @@ export function evaluateAutomationRulesForAssociate(
     };
   }
 
-  // Rule 2: Absolute Suppression for Dispute or Escalated collection status
+  // Rule 2: Absolute Suppression for Active Disputa or Escalation
   if (assoc.collection_status === "EN_DISPUTA") {
     return {
       eligible: false,
       suppressionReason: "SUPPRESSED_COLLECTION_IN_DISPUTE",
     };
   }
-
   if (assoc.collection_status === "ESCALADO") {
     return {
       eligible: false,
@@ -130,15 +138,7 @@ export function evaluateAutomationRulesForAssociate(
     };
   }
 
-  // Rule 3: Validate Contact Email
-  if (!isValidEmailSyntax(assoc.email)) {
-    return {
-      eligible: false,
-      suppressionReason: "SUPPRESSED_INVALID_CONTACT_EMAIL",
-    };
-  }
-
-  // Rule 4: 24-Hour Frequency Cap
+  // Rule 3: 24-Hour Frequency Cap
   // Statuses QUEUED, SENT, DELIVERED, BOUNCED, FAILED consume 24h cap. SUPPRESSED & DRY_RUN do NOT.
   const twentyFourHoursAgoMs = nowMs - 24 * 60 * 60 * 1000;
 
@@ -162,7 +162,20 @@ export function evaluateAutomationRulesForAssociate(
       .map((e) => e.automation_type)
   );
 
-  // Rule 5: Evaluate Payment Promises Precedence (POLICY A: UNSCHEDULED suppresses external outreach)
+  // Function helper to check email syntax only for email channel candidates
+  const checkEmailOrSuppress = (candidate: AutomationEvaluationResult): AutomationEvaluationResult => {
+    if (candidate.eligible && candidate.candidateEvent?.channel === "email") {
+      if (!isValidEmailSyntax(assoc.email)) {
+        return {
+          eligible: false,
+          suppressionReason: "SUPPRESSED_INVALID_CONTACT_EMAIL",
+        };
+      }
+    }
+    return candidate;
+  };
+
+  // Rule 4: Evaluate Payment Promises Precedence (POLICY A: UNSCHEDULED suppresses external outreach)
   if (promiseItem && promiseItem.promise_status !== "FULFILLED" && promiseItem.promise_status !== "SUPERSEDED") {
     if (!promiseItem.promised_payment_date || promiseItem.promise_status === "UNSCHEDULED") {
       return {
@@ -182,7 +195,7 @@ export function evaluateAutomationRulesForAssociate(
           };
         }
         const trigger: AutomationTriggerCode = "PROMISE_1D";
-        return {
+        return checkEmailOrSuppress({
           eligible: true,
           triggerCode: trigger,
           channel: "email",
@@ -196,7 +209,7 @@ export function evaluateAutomationRulesForAssociate(
             scheduled_for: startOfTodayIso,
             attempt_count: 1,
           },
-        };
+        });
       }
 
       // Future active promise suppresses generic overdue reminders
@@ -216,7 +229,7 @@ export function evaluateAutomationRulesForAssociate(
       }
       const trigger: AutomationTriggerCode = "PROMISE_DUE";
       const refDate = promiseItem.promised_payment_date;
-      return {
+      return checkEmailOrSuppress({
         eligible: true,
         triggerCode: trigger,
         channel: "email",
@@ -230,7 +243,7 @@ export function evaluateAutomationRulesForAssociate(
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
-      };
+      });
     }
 
     if (promiseItem.promise_status === "OVERDUE") {
@@ -261,7 +274,7 @@ export function evaluateAutomationRulesForAssociate(
     }
   }
 
-  // Rule 6: Evaluate Overdue Debt Reminders with Catch-Up & Explicit Already-Registered Tracking
+  // Rule 5: Evaluate Overdue Debt Reminders with Catch-Up & Explicit Already-Registered Tracking
   if (assoc.account_status === "EN MORA" && assoc.days_past_due > 0) {
     let trigger: AutomationTriggerCode | null = null;
     let offsetDays = 0;
@@ -298,7 +311,7 @@ export function evaluateAutomationRulesForAssociate(
         ? addDaysToDateString(assoc.oldest_unpaid_due_date, offsetDays)
         : todayStr;
 
-      return {
+      return checkEmailOrSuppress({
         eligible: true,
         triggerCode: trigger,
         channel: "email",
@@ -312,7 +325,7 @@ export function evaluateAutomationRulesForAssociate(
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
-      };
+      });
     } else if (primaryMilestone && registeredTypesSet.has(primaryMilestone)) {
       return {
         eligible: false,
@@ -322,22 +335,15 @@ export function evaluateAutomationRulesForAssociate(
     }
   }
 
-  // Rule 7: Evaluate Pre-Due Reminders for PENDIENTE (PRE_DUE_5D, PRE_DUE_1D, DUE_DATE)
+  // Rule 6: Evaluate Pre-Due & Due Date Reminders for PENDIENTE status
   if (assoc.account_status === "PENDIENTE" && assoc.oldest_unpaid_due_date) {
-    const dueDate = assoc.oldest_unpaid_due_date;
-    const date5d = addDaysToDateString(todayStr, 5);
-    const date1d = addDaysToDateString(todayStr, 1);
+    const dueStr = assoc.oldest_unpaid_due_date;
+    const pre5Date = addDaysToDateString(dueStr, -5);
+    const pre1Date = addDaysToDateString(dueStr, -1);
 
-    if (dueDate === date5d) {
-      if (registeredTypesSet.has("PRE_DUE_5D")) {
-        return {
-          eligible: false,
-          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
-          triggerCode: "PRE_DUE_5D",
-        };
-      }
+    if (todayStr === pre5Date && !registeredTypesSet.has("PRE_DUE_5D")) {
       const trigger: AutomationTriggerCode = "PRE_DUE_5D";
-      return {
+      return checkEmailOrSuppress({
         eligible: true,
         triggerCode: trigger,
         channel: "email",
@@ -345,25 +351,18 @@ export function evaluateAutomationRulesForAssociate(
           associate_id: assoc.associate_id,
           channel: "email",
           automation_type: trigger,
-          reference_date: dueDate,
+          reference_date: dueStr,
           status: "QUEUED",
           recipient_email: assoc.email,
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
-      };
+      });
     }
 
-    if (dueDate === date1d) {
-      if (registeredTypesSet.has("PRE_DUE_1D")) {
-        return {
-          eligible: false,
-          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
-          triggerCode: "PRE_DUE_1D",
-        };
-      }
+    if (todayStr === pre1Date && !registeredTypesSet.has("PRE_DUE_1D")) {
       const trigger: AutomationTriggerCode = "PRE_DUE_1D";
-      return {
+      return checkEmailOrSuppress({
         eligible: true,
         triggerCode: trigger,
         channel: "email",
@@ -371,25 +370,18 @@ export function evaluateAutomationRulesForAssociate(
           associate_id: assoc.associate_id,
           channel: "email",
           automation_type: trigger,
-          reference_date: dueDate,
+          reference_date: dueStr,
           status: "QUEUED",
           recipient_email: assoc.email,
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
-      };
+      });
     }
 
-    if (dueDate === todayStr) {
-      if (registeredTypesSet.has("DUE_DATE")) {
-        return {
-          eligible: false,
-          suppressionReason: "SUPPRESSED_MILESTONE_ALREADY_REGISTERED",
-          triggerCode: "DUE_DATE",
-        };
-      }
+    if (todayStr === dueStr && !registeredTypesSet.has("DUE_DATE")) {
       const trigger: AutomationTriggerCode = "DUE_DATE";
-      return {
+      return checkEmailOrSuppress({
         eligible: true,
         triggerCode: trigger,
         channel: "email",
@@ -397,51 +389,63 @@ export function evaluateAutomationRulesForAssociate(
           associate_id: assoc.associate_id,
           channel: "email",
           automation_type: trigger,
-          reference_date: dueDate,
+          reference_date: dueStr,
           status: "QUEUED",
           recipient_email: assoc.email,
           scheduled_for: startOfTodayIso,
           attempt_count: 1,
         },
-      };
+      });
     }
   }
 
+  // Fallback: No matching trigger
   return {
     eligible: false,
     suppressionReason: "NO_MATCHING_AUTOMATION_TRIGGER",
   };
 }
 
-/**
- * Runs a pure dry-run simulation across a cohort of associates.
- */
+export interface DryRunSummary {
+  totalAssociatesScanned: number;
+  totalCandidates: number;
+  totalSuppressed: number;
+  candidateEvents: AutomationCandidateEvent[];
+  suppressedRecords: AutomationSuppressionRecord[];
+  evalDate: string;
+}
+
 export function runAutomationDryRun(
-  associates: EnrichedAssociateAgingItem[] = [],
-  promiseItems: PaymentPromiseItem[] = [],
-  existingEvents: NotificationEventRecord[] = [],
+  associates: EnrichedAssociateAgingItem[],
+  promises: PaymentPromiseItem[],
+  historyEvents: NotificationEventRecord[],
   evalNowIsoStr?: string
 ): DryRunSummary {
   const { todayStr } = getBogotaTodayBounds(evalNowIsoStr);
+
   const promiseMap: Record<string, PaymentPromiseItem> = {};
-  promiseItems.forEach((p) => {
-    promiseMap[p.associate_id] = p;
-  });
-
-  const eventsMapByAssoc: Record<string, NotificationEventRecord[]> = {};
-  existingEvents.forEach((e) => {
-    if (!eventsMapByAssoc[e.associate_id]) {
-      eventsMapByAssoc[e.associate_id] = [];
+  for (const p of promises) {
+    if (p && p.associate_id) {
+      promiseMap[p.associate_id] = p;
     }
-    eventsMapByAssoc[e.associate_id].push(e);
-  });
+  }
 
-  const candidateEvents: NotificationEventRecord[] = [];
-  const suppressedEvents: { associate_id: string; reason: string; triggerCode?: string }[] = [];
+  const historyMap: Record<string, NotificationEventRecord[]> = {};
+  for (const h of historyEvents) {
+    if (h && h.associate_id) {
+      if (!historyMap[h.associate_id]) {
+        historyMap[h.associate_id] = [];
+      }
+      historyMap[h.associate_id].push(h);
+    }
+  }
+
+  const candidateEvents: AutomationCandidateEvent[] = [];
+  const suppressedRecords: AutomationSuppressionRecord[] = [];
 
   for (const assoc of associates) {
     const assocPromise = promiseMap[assoc.associate_id] || null;
-    const assocHistory = eventsMapByAssoc[assoc.associate_id] || [];
+    const assocHistory = historyMap[assoc.associate_id] || [];
 
     const evalResult = evaluateAutomationRulesForAssociate(
       assoc,
@@ -456,20 +460,26 @@ export function runAutomationDryRun(
         status: "DRY_RUN",
       });
     } else {
-      suppressedEvents.push({
+      suppressedRecords.push({
         associate_id: assoc.associate_id,
-        reason: evalResult.suppressionReason || "UNKNOWN_SUPPRESSION",
-        triggerCode: evalResult.triggerCode,
+        full_name: assoc.full_name,
+        account_status: assoc.account_status,
+        total_outstanding: assoc.total_outstanding,
+        collection_status: assoc.collection_status,
+        follow_up_state: assoc.follow_up_state,
+        promise_status: assocPromise?.promise_status || null,
+        suppression_reason: evalResult.suppressionReason || "NO_MATCHING_AUTOMATION_TRIGGER",
+        automation_type: evalResult.triggerCode || undefined,
       });
     }
   }
 
   return {
-    evalDate: todayStr,
     totalAssociatesScanned: associates.length,
     totalCandidates: candidateEvents.length,
-    totalSuppressed: suppressedEvents.length,
+    totalSuppressed: suppressedRecords.length,
     candidateEvents,
-    suppressedEvents,
+    suppressedRecords,
+    evalDate: todayStr,
   };
 }
