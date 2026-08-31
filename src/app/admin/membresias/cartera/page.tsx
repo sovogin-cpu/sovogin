@@ -97,6 +97,14 @@ export default function CollectionsPortfolioAdminPage() {
   const [simulationError, setSimulationError] = useState<string | null>(null);
   const [expandedIdempotencyKey, setExpandedIdempotencyKey] = useState<string | null>(null);
 
+  // Reservation Modal State (E3.2 Two-Step Admin Confirmation)
+  const [selectedCandidateForReservation, setSelectedCandidateForReservation] = useState<any | null>(null);
+  const [reservationSubmitting, setReservationSubmitting] = useState(false);
+  const [reservationFeedback, setReservationFeedback] = useState<{
+    outcome: "RESERVED" | "ALREADY_RESERVED" | "SUPPRESSED";
+    message: string;
+  } | null>(null);
+
   const actionsByAssociateId = useMemo(() => {
     const map: Record<string, CollectionAction[]> = {};
     associates.forEach((a) => {
@@ -160,6 +168,54 @@ export default function CollectionsPortfolioAdminPage() {
       setSimulationLoading(false);
     }
   }, [simulationLoading]);
+
+  const confirmReservation = async () => {
+    if (!selectedCandidateForReservation) return;
+    setReservationSubmitting(true);
+    setReservationFeedback(null);
+
+    try {
+      const res = await fetch("/api/admin/collections/automation/reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          associate_id: selectedCandidateForReservation.associate_id,
+          expected_automation_type: selectedCandidateForReservation.automation_type,
+          expected_reference_date: selectedCandidateForReservation.reference_date,
+          expected_channel: selectedCandidateForReservation.channel,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Error al procesar la reserva.");
+      }
+
+      if (data.outcome === "RESERVED") {
+        setReservationFeedback({
+          outcome: "RESERVED",
+          message: "Evento de notificación reservado correctamente con estado QUEUED en la cola de salida. No se ha realizado ningún envío externo.",
+        });
+      } else if (data.outcome === "ALREADY_RESERVED") {
+        setReservationFeedback({
+          outcome: "ALREADY_RESERVED",
+          message: "Este evento de notificación ya se encontraba previamente reservado e identificado de forma idempotente en el sistema.",
+        });
+      } else {
+        setReservationFeedback({
+          outcome: "SUPPRESSED",
+          message: `La reserva fue suprimida tras re-evaluar las reglas operativas de servidor. Motivo: ${data.reason}`,
+        });
+      }
+    } catch (err: any) {
+      setReservationFeedback({
+        outcome: "SUPPRESSED",
+        message: err.message || "Error al comunicarse con el servidor.",
+      });
+    } finally {
+      setReservationSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     void fetchCollectionsData();
@@ -688,7 +744,18 @@ export default function CollectionsPortfolioAdminPage() {
                               <TableCell className="text-xs font-medium text-slate-700 font-mono">
                                 {candidate.reference_date}
                               </TableCell>
-                              <TableCell className="text-right">
+                              <TableCell className="text-right flex items-center justify-end gap-2">
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setReservationFeedback(null);
+                                    setSelectedCandidateForReservation(candidate);
+                                  }}
+                                  className="border-[#006666] text-[#006666] hover:bg-[#006666] hover:text-white font-bold cursor-pointer text-[11px]"
+                                >
+                                  Revisar reserva
+                                </Button>
                                 <Button
                                   size="xs"
                                   variant="ghost"
@@ -697,7 +764,7 @@ export default function CollectionsPortfolioAdminPage() {
                                       isExpanded ? null : candidate.idempotency_key
                                     )
                                   }
-                                  className="text-slate-500 hover:text-slate-900 flex items-center gap-1 ml-auto"
+                                  className="text-slate-500 hover:text-slate-900 flex items-center gap-1"
                                 >
                                   <Code className="w-3 h-3" />
                                   {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -1138,6 +1205,125 @@ export default function CollectionsPortfolioAdminPage() {
               </TableBody>
             </Table>
           )}
+        </div>
+      )}
+
+      {/* Reservation Confirmation Modal (Fase 4A5.2-E3.2 Two-Step Admin Confirmation) */}
+      {selectedCandidateForReservation && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-lg">
+                <ShieldAlert className="w-5 h-5 text-amber-600" />
+                Revisar y Confirmar Reserva de Notificación
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedCandidateForReservation(null);
+                  setReservationFeedback(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {reservationFeedback ? (
+              <div className="space-y-4">
+                <div
+                  className={`p-4 rounded-xl border text-xs space-y-1 ${
+                    reservationFeedback.outcome === "RESERVED"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                      : reservationFeedback.outcome === "ALREADY_RESERVED"
+                      ? "bg-blue-50 border-blue-200 text-blue-900"
+                      : "bg-amber-50 border-amber-200 text-amber-900"
+                  }`}
+                >
+                  <p className="font-bold text-sm">
+                    Resultado: {reservationFeedback.outcome}
+                  </p>
+                  <p>{reservationFeedback.message}</p>
+                </div>
+                <div className="text-right">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setSelectedCandidateForReservation(null);
+                      setReservationFeedback(null);
+                    }}
+                    className="bg-slate-800 hover:bg-slate-900 text-white font-bold cursor-pointer"
+                  >
+                    Cerrar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 text-xs text-slate-700">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Asociado:</span>
+                    <strong className="text-slate-900">{selectedCandidateForReservation.full_name}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Hito Operativo:</span>
+                    <span className="font-bold text-indigo-700 font-mono">
+                      {getAutomationTriggerLabel(selectedCandidateForReservation.automation_type)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Canal de Salida:</span>
+                    <span className="font-bold text-emerald-700">
+                      {getChannelLabel(selectedCandidateForReservation.channel)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Fecha Objetivo:</span>
+                    <span className="font-mono text-slate-800">{selectedCandidateForReservation.reference_date}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Saldo Pendiente:</span>
+                    <strong className="text-slate-900">{formatMoney(selectedCandidateForReservation.total_outstanding)}</strong>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Advertencia de Reserva (Fase 4A5.2-E3.2):</strong> Esta acción registrará un evento con estado <code className="font-mono font-bold bg-amber-100 px-1 rounded text-amber-950">QUEUED</code> en la base de datos de notificaciones. NO se enviará ningún correo ni mensaje externo en este paso.
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedCandidateForReservation(null);
+                      setReservationFeedback(null);
+                    }}
+                    disabled={reservationSubmitting}
+                    className="cursor-pointer"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void confirmReservation()}
+                    disabled={reservationSubmitting}
+                    className="bg-[#006666] hover:bg-[#004d4d] text-white font-bold flex items-center gap-2 cursor-pointer"
+                  >
+                    {reservationSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Procesando...
+                      </>
+                    ) : (
+                      "Confirmar Reserva de Notificación"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
