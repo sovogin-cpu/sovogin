@@ -32,6 +32,25 @@ export class SupabaseNotificationDeliveryRepository implements NotificationDeliv
     };
   }
 
+  async claimNextForDelivery(): Promise<ClaimResult | null> {
+    const { data, error } = await this.client.rpc("claim_next_notification_for_delivery");
+
+    if (error) {
+      throw new Error(`claimNextForDelivery RPC error: ${error.message}`);
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || !row.event_id) {
+      return null;
+    }
+
+    return {
+      event_id: row.event_id,
+      claim_token: row.claim_token,
+      claim_expires_at: row.claim_expires_at,
+    };
+  }
+
   async suppressDelivery(eventId: string, claimToken: string, reason: string): Promise<boolean> {
     const { data, error } = await this.client.rpc("suppress_notification_delivery", {
       p_event_id: eventId,

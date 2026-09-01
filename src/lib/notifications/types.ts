@@ -78,6 +78,7 @@ export interface RecoverDeliveryResult {
 
 export interface NotificationDeliveryRepository {
   claimForDelivery: (eventId: string) => Promise<ClaimResult>;
+  claimNextForDelivery: () => Promise<ClaimResult | null>;
   suppressDelivery: (eventId: string, claimToken: string, reason: string) => Promise<boolean>;
   startDelivery: (eventId: string, claimToken: string) => Promise<StartDeliveryResult>;
   recoverExpiredDelivery: (eventId: string, attemptId: string, claimToken: string) => Promise<RecoverDeliveryResult>;

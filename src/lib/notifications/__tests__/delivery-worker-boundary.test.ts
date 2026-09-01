@@ -163,7 +163,7 @@ export async function runDeliveryWorkerBoundaryTests(): Promise<void> {
       console.log("PASSED: Test 5 - Operational fields (eventId, recipient, etc.) strictly forbidden in HTTP request body");
     }
 
-    // --- Test 6: Route Server Event Selector Guard -> 503 Service Unavailable ---
+    // --- Test 6: Route Server-Controlled Event Selection -> 200 OK NO_ELIGIBLE_EVENT on Empty Queue ---
     {
       const req = new NextRequest("http://localhost:3000/api/internal/notifications/delivery/run", {
         method: "POST",
@@ -171,10 +171,11 @@ export async function runDeliveryWorkerBoundaryTests(): Promise<void> {
         body: JSON.stringify({}),
       });
       const res = await POST(req);
-      assertEqual(res.status, 503, "Test 6: Route returns 503 because server event selector is missing");
+      assertEqual(res.status, 200, "Test 6: Route returns 200 OK for valid trigger request");
       const resJson = await res.json();
-      assertEqual(resJson.error, "SERVICE_UNAVAILABLE", "Test 6: Server event selector not configured");
-      console.log("PASSED: Test 6 - Route returns 503 fail-closed when server event selector is missing");
+      assertEqual(resJson.success, true, "Test 6: Response success flag is true");
+      assertEqual(resJson.status, "NO_ELIGIBLE_EVENT", "Test 6: Empty queue status is NO_ELIGIBLE_EVENT");
+      console.log("PASSED: Test 6 - Route executes server-controlled claimNextForDelivery returning 200 NO_ELIGIBLE_EVENT");
     }
 
     // --- Test 7: Worker Factory - Credentials Missing -> Fail Closed ---

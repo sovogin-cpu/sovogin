@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { runNextWorkerDelivery } from "@/lib/notifications/delivery-worker-runner";
 
 /**
  * Constant-time comparison function for trigger secret validation.
@@ -80,16 +81,41 @@ export async function POST(req: NextRequest) {
 
   // Prerequisite 5: Production Provider Guard (FakeProvider strictly forbidden in production)
   const isProduction = process.env.NODE_ENV === "production";
-  if (isProduction) {
+  if (isProduction && (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.trim() === "")) {
     return NextResponse.json(
-      { error: "SERVICE_UNAVAILABLE", message: "Production delivery provider not configured (FakeProvider is strictly forbidden in production)" },
+      { error: "SERVICE_UNAVAILABLE", message: "Production delivery provider not configured (RESEND_API_KEY missing)" },
       { status: 503 }
     );
   }
 
-  // Prerequisite 6: Server-Controlled Event Selector Guard (Must be configured to execute delivery)
-  return NextResponse.json(
-    { error: "SERVICE_UNAVAILABLE", message: "Server-controlled event selector (SERVER_EVENT_SELECTOR_NOT_CONFIGURED) is not configured. Delivery execution blocked." },
-    { status: 503 }
-  );
+  try {
+    // Server-controlled execution: Claims and processes next eligible notification atomically
+    const result = await runNextWorkerDelivery();
+
+    return NextResponse.json(
+      {
+        success: true,
+        eventId: result.eventId,
+        status: result.status,
+        attemptNumber: result.attemptNumber,
+        dispatchCount: result.dispatchCount,
+        providerMessageId: result.providerMessageId,
+        error: result.error,
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    if (errorMsg.includes("WORKER_RUNTIME_DISABLED") || errorMsg.includes("DELIVERY_PROVIDER_NOT_CONFIGURED")) {
+      return NextResponse.json(
+        { error: "SERVICE_UNAVAILABLE", message: errorMsg },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "INTERNAL_ERROR", message: errorMsg },
+      { status: 500 }
+    );
+  }
 }
