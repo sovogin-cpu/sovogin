@@ -19,6 +19,30 @@ export interface WorkerRunnerResult {
   error: string | null;
 }
 
+export interface BatchWorkerRunnerOptions {
+  provider?: NotificationDeliveryProvider;
+  maxEventsPerRun?: number;
+  maxEmailsPerDay?: number;
+  errorStopThreshold?: number;
+  deploymentSha?: string;
+  leaseSeconds?: number;
+}
+
+export interface BatchWorkerRunnerResult {
+  success: boolean;
+  runId: string | null;
+  status: "SUCCESS" | "PARTIAL" | "FAILED" | "STOPPED" | "ALREADY_RUNNING" | "DAILY_LIMIT_REACHED" | "NO_WORK";
+  claimedCount: number;
+  sentCount: number;
+  suppressedCount: number;
+  transientFailureCount: number;
+  permanentFailureCount: number;
+  unknownCount: number;
+  technicalFailureCount: number;
+  stopReason: string | null;
+  noWork: boolean;
+}
+
 /**
  * Runs server-controlled single-event notification delivery execution using the authenticated worker identity.
  * Claims the next eligible notification atomically via DB RPC.
@@ -90,6 +114,230 @@ export async function runNextWorkerDelivery(
     providerMessageId: result.providerMessageId,
     error: result.error,
   };
+}
+
+/**
+ * Runs bounded batch notification delivery with durable cross-request lease locking, daily safety cap, error thresholds, and run auditing.
+ */
+export async function runBatchWorkerDelivery(
+  options?: BatchWorkerRunnerOptions
+): Promise<BatchWorkerRunnerResult> {
+  const isProduction = process.env.NODE_ENV === "production";
+  const runtimeEnabled = process.env.DELIVERY_RUNTIME_ENABLED === "true";
+
+  if (!runtimeEnabled) {
+    throw new Error("WORKER_RUNTIME_DISABLED: Delivery worker runtime is disabled in server environment (DELIVERY_RUNTIME_ENABLED !== 'true')");
+  }
+
+  let provider = options?.provider;
+  if (!provider) {
+    if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim() !== "") {
+      provider = new ResendNotificationDeliveryProvider();
+    } else if (!isProduction) {
+      provider = new FakeNotificationDeliveryProvider();
+    }
+  }
+
+  if (isProduction && (!provider || provider instanceof FakeNotificationDeliveryProvider)) {
+    throw new Error("DELIVERY_PROVIDER_NOT_CONFIGURED: Production provider missing or misconfigured; FakeProvider is strictly forbidden in production");
+  }
+
+  if (!provider) {
+    throw new Error("DELIVERY_PROVIDER_NOT_CONFIGURED: Delivery provider not configured");
+  }
+
+  // Parse server-side configurations with conservative defaults (1 / 10 / 1)
+  let rawMaxEvents = options?.maxEventsPerRun !== undefined ? options.maxEventsPerRun : parseInt(process.env.DELIVERY_MAX_EVENTS_PER_RUN || "1", 10);
+  if (isNaN(rawMaxEvents) || rawMaxEvents < 1) rawMaxEvents = 1;
+  const maxEventsPerRun = Math.min(25, rawMaxEvents); // Hard maximum 25
+
+  let rawMaxDaily = options?.maxEmailsPerDay !== undefined ? options.maxEmailsPerDay : parseInt(process.env.DELIVERY_MAX_EMAILS_PER_DAY || "10", 10);
+  if (isNaN(rawMaxDaily) || rawMaxDaily < 1) rawMaxDaily = 10;
+  const maxEmailsPerDay = rawMaxDaily;
+
+  let rawStopThreshold = options?.errorStopThreshold !== undefined ? options.errorStopThreshold : parseInt(process.env.DELIVERY_ERROR_STOP_THRESHOLD || "1", 10);
+  if (isNaN(rawStopThreshold) || rawStopThreshold < 1) rawStopThreshold = 1;
+  const errorStopThreshold = rawStopThreshold;
+
+  const leaseSeconds = options?.leaseSeconds || 300;
+  const deploymentSha = options?.deploymentSha || process.env.VERCEL_GIT_COMMIT_SHA || "local";
+
+  const { supabase } = await createDeliveryWorkerClient();
+  const repository = new SupabaseNotificationDeliveryRepository(supabase);
+  const orchestrator = new NotificationDeliveryOrchestrator(repository, provider);
+
+  // 1. Record Run Start to get unique runId
+  const { data: createdRunId } = await supabase.rpc("record_delivery_run_start", {
+    p_source: "scheduler",
+    p_sha: deploymentSha,
+  });
+  const runId = createdRunId || null;
+
+  if (!runId) {
+    throw new Error("SCHEDULER_ERROR: Unable to record delivery run start ID");
+  }
+
+  // 2. Acquire Durable Cross-Request Singleton Lease
+  const { data: leaseAcquired, error: leaseErr } = await supabase.rpc("try_acquire_delivery_scheduler_lease", {
+    p_run_id: runId,
+    p_lease_seconds: leaseSeconds,
+  });
+
+  if (leaseErr || !leaseAcquired) {
+    await supabase.rpc("record_delivery_run_finish", {
+      p_run_id: runId,
+      p_status: "ALREADY_RUNNING",
+      p_claimed: 0,
+      p_sent: 0,
+      p_suppressed: 0,
+      p_transient: 0,
+      p_permanent: 0,
+      p_unknown: 0,
+      p_technical: 0,
+      p_stop_reason: "CONCURRENCY_LEASE_DENIED",
+    });
+
+    return {
+      success: true,
+      runId,
+      status: "ALREADY_RUNNING",
+      claimedCount: 0,
+      sentCount: 0,
+      suppressedCount: 0,
+      transientFailureCount: 0,
+      permanentFailureCount: 0,
+      unknownCount: 0,
+      technicalFailureCount: 0,
+      stopReason: "CONCURRENCY_LEASE_DENIED",
+      noWork: false,
+    };
+  }
+
+  try {
+    // 3. Check Daily Safety Cap
+    const { data: dailyCount, error: dailyErr } = await supabase.rpc("check_daily_delivery_count");
+    if (!dailyErr && typeof dailyCount === "number" && dailyCount >= maxEmailsPerDay) {
+      await supabase.rpc("record_delivery_run_finish", {
+        p_run_id: runId,
+        p_status: "DAILY_LIMIT_REACHED",
+        p_claimed: 0,
+        p_sent: 0,
+        p_suppressed: 0,
+        p_transient: 0,
+        p_permanent: 0,
+        p_unknown: 0,
+        p_technical: 0,
+        p_stop_reason: "DAILY_SAFETY_CAP_REACHED",
+      });
+
+      return {
+        success: true,
+        runId,
+        status: "DAILY_LIMIT_REACHED",
+        claimedCount: 0,
+        sentCount: 0,
+        suppressedCount: 0,
+        transientFailureCount: 0,
+        permanentFailureCount: 0,
+        unknownCount: 0,
+        technicalFailureCount: 0,
+        stopReason: "DAILY_SAFETY_CAP_REACHED",
+        noWork: false,
+      };
+    }
+
+    let claimedCount = 0;
+    let sentCount = 0;
+    let suppressedCount = 0;
+    let transientFailureCount = 0;
+    let permanentFailureCount = 0;
+    let unknownCount = 0;
+    let technicalFailureCount = 0;
+    let consecutiveFailures = 0;
+    let stopReason: string | null = null;
+    let finalStatus: BatchWorkerRunnerResult["status"] = "SUCCESS";
+
+    // 4. Bounded Loop
+    for (let i = 0; i < maxEventsPerRun; i++) {
+      // Re-verify Daily Cap
+      const { data: currentDaily } = await supabase.rpc("check_daily_delivery_count");
+      if (typeof currentDaily === "number" && currentDaily >= maxEmailsPerDay) {
+        stopReason = "DAILY_SAFETY_CAP_REACHED";
+        finalStatus = "STOPPED";
+        break;
+      }
+
+      const claim = await repository.claimNextForDelivery();
+      if (!claim) {
+        if (claimedCount === 0) {
+          finalStatus = "NO_WORK";
+        }
+        break;
+      }
+
+      claimedCount++;
+
+      const result = await orchestrator.runDeliveryOnce(claim.event_id, {
+        preClaimedToken: claim.claim_token,
+        eligibilityEvaluator: createDbEligibilityEvaluator(supabase, claim.claim_token),
+      });
+
+      if (result.status === "PROCESSED_SUCCESS") {
+        sentCount++;
+        consecutiveFailures = 0;
+      } else if (result.status === "PROCESSED_SUPPRESSED") {
+        suppressedCount++;
+        consecutiveFailures = 0;
+      } else if (result.status === "PROCESSED_FAILED") {
+        if (result.error?.includes("UNKNOWN_OUTCOME")) {
+          unknownCount++;
+          stopReason = "UNKNOWN_OUTCOME_OCCURRED";
+          finalStatus = "STOPPED";
+          break;
+        } else {
+          technicalFailureCount++;
+          consecutiveFailures++;
+        }
+      }
+
+      if (consecutiveFailures >= errorStopThreshold) {
+        stopReason = "ERROR_STOP_THRESHOLD_REACHED";
+        finalStatus = "STOPPED";
+        break;
+      }
+    }
+
+    await supabase.rpc("record_delivery_run_finish", {
+      p_run_id: runId,
+      p_status: finalStatus,
+      p_claimed: claimedCount,
+      p_sent: sentCount,
+      p_suppressed: suppressedCount,
+      p_transient: transientFailureCount,
+      p_permanent: permanentFailureCount,
+      p_unknown: unknownCount,
+      p_technical: technicalFailureCount,
+      p_stop_reason: stopReason,
+    });
+
+    return {
+      success: true,
+      runId,
+      status: finalStatus,
+      claimedCount,
+      sentCount,
+      suppressedCount,
+      transientFailureCount,
+      permanentFailureCount,
+      unknownCount,
+      technicalFailureCount,
+      stopReason,
+      noWork: finalStatus === "NO_WORK",
+    };
+  } finally {
+    // 5. Always Release Lease in Finally Block (Owner check enforced by RPC)
+    await supabase.rpc("release_delivery_scheduler_lease", { p_run_id: runId });
+  }
 }
 
 /**

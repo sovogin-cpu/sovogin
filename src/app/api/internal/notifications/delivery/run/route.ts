@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { runNextWorkerDelivery } from "@/lib/notifications/delivery-worker-runner";
+import { runBatchWorkerDelivery, runNextWorkerDelivery } from "@/lib/notifications/delivery-worker-runner";
 
 /**
  * Constant-time comparison function for trigger secret validation.
@@ -27,11 +27,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Prerequisite 2: Trigger Secret Configuration Check
-  const triggerSecret = process.env.DELIVERY_WORKER_TRIGGER_SECRET;
+  // Prerequisite 2: Trigger Secret / Cron Secret Configuration Check
+  const triggerSecret = process.env.DELIVERY_WORKER_TRIGGER_SECRET || process.env.CRON_SECRET;
   if (!triggerSecret || triggerSecret.trim() === "") {
     return NextResponse.json(
-      { error: "DISABLED", message: "Delivery worker endpoint is disabled (DELIVERY_WORKER_TRIGGER_SECRET not configured)" },
+      { error: "DISABLED", message: "Delivery worker endpoint is disabled (DELIVERY_WORKER_TRIGGER_SECRET / CRON_SECRET not configured)" },
       { status: 503 }
     );
   }
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Reject forbidden operational fields in HTTP request body
-  const forbiddenFields = ["eventId", "recipient", "provider", "attemptNumber", "claimToken"];
+  const forbiddenFields = ["eventId", "recipient", "provider", "attemptNumber", "claimToken", "maxEventsPerRun", "maxEmailsPerDay"];
   for (const field of forbiddenFields) {
     if (body && Object.prototype.hasOwnProperty.call(body, field)) {
       return NextResponse.json(
@@ -89,18 +89,41 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Server-controlled execution: Claims and processes next eligible notification atomically
-    const result = await runNextWorkerDelivery();
+    // Determine mode: mode='single' runs 1 event; default runs bounded batch
+    const mode = req.nextUrl.searchParams.get("mode");
+    if (mode === "single") {
+      const result = await runNextWorkerDelivery();
+      return NextResponse.json(
+        {
+          success: true,
+          eventId: result.eventId,
+          status: result.status,
+          attemptNumber: result.attemptNumber,
+          dispatchCount: result.dispatchCount,
+          providerMessageId: result.providerMessageId,
+          error: result.error,
+        },
+        { status: 200 }
+      );
+    }
+
+    // Bounded Batch Execution
+    const batchResult = await runBatchWorkerDelivery();
 
     return NextResponse.json(
       {
-        success: true,
-        eventId: result.eventId,
-        status: result.status,
-        attemptNumber: result.attemptNumber,
-        dispatchCount: result.dispatchCount,
-        providerMessageId: result.providerMessageId,
-        error: result.error,
+        success: batchResult.success,
+        runId: batchResult.runId,
+        status: batchResult.status,
+        claimedCount: batchResult.claimedCount,
+        sentCount: batchResult.sentCount,
+        suppressedCount: batchResult.suppressedCount,
+        transientFailureCount: batchResult.transientFailureCount,
+        permanentFailureCount: batchResult.permanentFailureCount,
+        unknownCount: batchResult.unknownCount,
+        technicalFailureCount: batchResult.technicalFailureCount,
+        stopReason: batchResult.stopReason,
+        noWork: batchResult.noWork,
       },
       { status: 200 }
     );
