@@ -1,3 +1,4 @@
+// @ts-ignore - pg is an optional local test module not in package.json
 import { Client } from "pg";
 import {
   reserveNotificationEvent,
