@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/memberships/generate-charges",
       "schedule": "10 5 * * *"
+    },
+    {
+      "path": "/api/internal/notifications/delivery/cron",
+      "schedule": "0 13 * * *"
     }
   ]
 }
