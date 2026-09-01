@@ -78,7 +78,7 @@ export async function runNextWorkerDelivery(
   // 5. Run delivery once for claimed event using pre-claimed token from server selector
   const result = await orchestrator.runDeliveryOnce(claim.event_id, {
     preClaimedToken: claim.claim_token,
-    eligibilityEvaluator: createDbEligibilityEvaluator(supabase),
+    eligibilityEvaluator: createDbEligibilityEvaluator(supabase, claim.claim_token),
   });
 
   return {
