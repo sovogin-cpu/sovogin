@@ -128,6 +128,12 @@ export async function runWorkerAuthorityTests(): Promise<void> {
 
   // Seed Event
   const testAssocId = "00000000-0000-0000-0000-000000000077";
+  await supabaseService.from("associates").upsert({
+    id: testAssocId,
+    full_name: "Test Assoc H2",
+    email: "h2-assoc@sovogin.local",
+    status: "ACTIVE",
+  });
   const uniqueRefDate = new Date(Date.now() + Math.floor(Math.random() * 500000000000) + 100000000000).toISOString().slice(0, 10);
   const { data: testEv } = await supabaseService.from("collection_notification_events").insert({
     associate_id: testAssocId,

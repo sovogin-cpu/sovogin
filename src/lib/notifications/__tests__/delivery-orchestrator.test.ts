@@ -30,6 +30,15 @@ class FakeNotificationDeliveryRepository implements NotificationDeliveryReposito
     });
   }
 
+  public async claimNextForDelivery(): Promise<ClaimResult | null> {
+    this.calls.push("claimNextForDelivery");
+    const eligibleEvent = Array.from(this.events.values()).find(
+      (e) => e.status === "QUEUED"
+    );
+    if (!eligibleEvent) return null;
+    return this.claimForDelivery(eligibleEvent.id);
+  }
+
   async claimForDelivery(eventId: string): Promise<ClaimResult> {
     this.calls.push(`claimForDelivery:${eventId}`);
     const ev = this.events.get(eventId);

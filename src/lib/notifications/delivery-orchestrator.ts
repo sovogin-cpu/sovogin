@@ -49,18 +49,22 @@ export class NotificationDeliveryOrchestrator {
     eventId: string,
     options?: {
       eligibilityEvaluator?: FreshEligibilityEvaluator;
+      preClaimedToken?: string;
       openAttemptRecovery?: {
         attemptId: string;
         isExpiredLease?: boolean;
       };
     }
   ): Promise<OrchestratorResult> {
-    // 1. Claim event lease from repository
+    // 1. Claim event lease from repository (or use pre-claimed token from server selector)
     let claimToken: string;
-    try {
-      const claim = await this.repository.claimForDelivery(eventId);
-      claimToken = claim.claim_token;
-    } catch (err: any) {
+    if (options?.preClaimedToken) {
+      claimToken = options.preClaimedToken;
+    } else {
+      try {
+        const claim = await this.repository.claimForDelivery(eventId);
+        claimToken = claim.claim_token;
+      } catch (err: any) {
       const msg = err.message || "";
       if (msg.includes("NOT_FOUND_OR_NOT_CLAIMABLE")) {
         return {
@@ -85,6 +89,7 @@ export class NotificationDeliveryOrchestrator {
         };
       }
       throw err;
+    }
     }
 
     // 2. Evaluate fresh eligibility before first dispatch
