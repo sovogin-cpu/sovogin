@@ -95,19 +95,33 @@ export class NotificationDeliveryOrchestrator {
     // 2. Evaluate fresh eligibility before first dispatch
     const evaluator = options?.eligibilityEvaluator || this.defaultEligibilityEvaluator;
     if (evaluator) {
-      const eligibility = await evaluator(eventId);
-      if (!eligibility.eligible) {
-        const suppressionReason =
-          eligibility.suppressionReason || "INELIGIBLE_AT_DISPATCH_TIME";
-        await this.repository.suppressDelivery(eventId, claimToken, suppressionReason);
+      try {
+        const eligibility = await evaluator(eventId);
+        if (!eligibility.eligible) {
+          const suppressionReason =
+            eligibility.suppressionReason || "INELIGIBLE_AT_DISPATCH_TIME";
+          await this.repository.suppressDelivery(eventId, claimToken, suppressionReason);
+          return {
+            status: "PROCESSED_SUPPRESSED",
+            eventId,
+            attemptNumber: null,
+            dispatchCount: null,
+            providerIdempotencyKey: null,
+            providerMessageId: null,
+            error: suppressionReason,
+          };
+        }
+      } catch (evalErr: any) {
+        // Technical failure during eligibility evaluation (e.g. RLS error, DB connection error, fencing error)
+        // MUST NOT suppress the event! Return PROCESSED_FAILED to fail closed without mutating event status.
         return {
-          status: "PROCESSED_SUPPRESSED",
+          status: "PROCESSED_FAILED",
           eventId,
           attemptNumber: null,
           dispatchCount: null,
           providerIdempotencyKey: null,
           providerMessageId: null,
-          error: suppressionReason,
+          error: evalErr.message || "TECHNICAL_ELIGIBILITY_EVALUATION_ERROR",
         };
       }
     }

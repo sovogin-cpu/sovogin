@@ -133,26 +133,40 @@ export async function runWorkerDeliveryForEvent(
   };
 }
 
-export function createDbEligibilityEvaluator(supabase: any) {
+export function createDbEligibilityEvaluator(supabase: any, claimToken?: string) {
   return async (eventId: string) => {
-    const { data: ev } = await supabase
-      .from("collection_notification_events")
-      .select("id, associate_id, channel, automation_type, reference_date, recipient_email")
-      .eq("id", eventId)
-      .single();
-
-    if (!ev) {
-      return { eligible: false, suppressionReason: "EVENT_NOT_FOUND" };
+    if (!claimToken) {
+      throw new Error("ELIGIBILITY_EVALUATION_ERROR: claimToken parameter is required for fresh delivery eligibility evaluation");
     }
 
-    const { data: assoc } = await supabase
-      .from("associates")
-      .select("full_name, email")
-      .eq("id", ev.associate_id)
-      .single();
+    const { data, error } = await supabase.rpc("evaluate_notification_delivery_eligibility", {
+      p_event_id: eventId,
+      p_claim_token: claimToken,
+    });
 
-    const recipient = ev.recipient_email || assoc?.email || "bopsoluciones@gmail.com";
-    const associateName = assoc?.full_name || "Asociado";
+    if (error) {
+      throw new Error(`ELIGIBILITY_EVALUATION_ERROR: ${error.message}`);
+    }
+
+    const res = Array.isArray(data) ? data[0] : data;
+
+    if (!res || !res.event_exists) {
+      throw new Error(`ELIGIBILITY_EVALUATION_ERROR: Event ${eventId} not found or inaccessible`);
+    }
+
+    if (!res.fencing_valid) {
+      throw new Error(`ELIGIBILITY_FENCING_ERROR: Claim fencing validation failed for event ${eventId} (${res.error_code || "INVALID_CLAIM_TOKEN"})`);
+    }
+
+    if (!res.business_eligible) {
+      return {
+        eligible: false,
+        suppressionReason: res.ineligibility_reason || "SUPPRESSED_ACCOUNT_AL_DIA",
+      };
+    }
+
+    const recipient = res.recipient_email || "bopsoluciones@gmail.com";
+    const associateName = res.associate_name || "Asociado";
 
     const subject = "Recordatorio: Su membresía SOVOGIN presenta un saldo pendiente de pago";
     const body = `<!DOCTYPE html>
@@ -179,7 +193,7 @@ export function createDbEligibilityEvaluator(supabase: any) {
     return {
       eligible: true,
       recipient,
-      channel: ev.channel || "email",
+      channel: res.channel || "email",
       subject,
       body,
     };
