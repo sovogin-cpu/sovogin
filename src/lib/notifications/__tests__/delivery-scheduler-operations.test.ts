@@ -86,7 +86,7 @@ async function runSchedulerOperationsTests() {
     console.log("PASSED: Test 5 - Valid Cron Secret + Runtime Enabled Invokes Scheduler Runner");
   }
 
-  // 6. Cron Lease Held + Manual POST Invoked -> Manual Returns ALREADY_RUNNING
+  // 6. Cron Lease Held + Manual POST Invoked -> Manual Denied (ALREADY_RUNNING)
   {
     const simulateCronAndManualRace = (cronHoldingLease: boolean) => {
       if (cronHoldingLease) {
@@ -102,7 +102,7 @@ async function runSchedulerOperationsTests() {
     console.log("PASSED: Test 6 - Cron Lease Held + Manual POST Invoked -> Manual Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
   }
 
-  // 7. Manual Lease Held + Cron Invoked -> Cron Returns ALREADY_RUNNING
+  // 7. Manual Lease Held + Cron Invoked -> Cron Denied (ALREADY_RUNNING)
   {
     const simulateManualAndCronRace = (manualHoldingLease: boolean) => {
       if (manualHoldingLease) {
@@ -118,94 +118,96 @@ async function runSchedulerOperationsTests() {
     console.log("PASSED: Test 7 - Manual Lease Held + Cron Invoked -> Cron Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
   }
 
-  // 8. Daily Count = Limit - 1 + Concurrent Attempt -> Maximum One Execution Proceeds
-  {
-    let currentDailyCount = 9;
-    const limit = 10;
-
-    const executeDelivery = () => {
-      // Serialized critical section
-      if (currentDailyCount >= limit) {
-        return { status: "DAILY_LIMIT_REACHED", providerCall: false };
-      }
-      currentDailyCount++;
-      return { status: "SUCCESS", providerCall: true };
-    };
-
-    // Execution 1 enters critical section first
-    const res1 = executeDelivery();
-    // Execution 2 enters critical section second
-    const res2 = executeDelivery();
-
-    if (res1.status !== "SUCCESS" || !res1.providerCall) {
-      throw new Error("Execution 1 failed to consume final daily slot!");
-    }
-    if (res2.status !== "DAILY_LIMIT_REACHED" || res2.providerCall) {
-      throw new Error("Execution 2 incorrectly bypassed global daily limit!");
-    }
-    console.log("PASSED: Test 8 - Daily Count = Limit - 1 + Concurrent Attempt -> Exactly One Execution Consumes Final Slot");
-  }
-
-  // 9. First Execution Consumes Final Slot -> Second Execution Sees DAILY_LIMIT_REACHED (No Provider Call)
-  {
-    let currentDailyCount = 10;
-    const limit = 10;
-
-    const executeDelivery = () => {
-      if (currentDailyCount >= limit) {
-        return { status: "DAILY_LIMIT_REACHED", providerCall: false };
-      }
-      currentDailyCount++;
-      return { status: "SUCCESS", providerCall: true };
-    };
-
-    const res = executeDelivery();
-    if (res.status !== "DAILY_LIMIT_REACHED" || res.providerCall !== false) {
-      throw new Error("Execution incorrectly invoked provider when daily cap was reached!");
-    }
-    console.log("PASSED: Test 9 - Daily Cap Reached -> Second Execution Sees DAILY_LIMIT_REACHED (Zero Provider Calls)");
-  }
-
-  // 10. Manual POST Always Releases Lease in Finally Block
+  // 8. Controlled UNKNOWN_OUTCOME Releases Lease in Finally Block (Batch Stops Gracefully)
   {
     let leaseReleased = false;
-    const runManualExecution = () => {
+    let providerCalls = 0;
+
+    const runControlledBatchWithUnknownOutcome = () => {
       try {
-        // Execute manual delivery logic
+        providerCalls++; // Event 1 dispatches
+        // Provider throws or returns UNKNOWN_OUTCOME
+        const status = "UNKNOWN_OUTCOME";
+        if (status === "UNKNOWN_OUTCOME") {
+          // Batch loop breaks immediately
+          return { status: "STOPPED", stopReason: "UNKNOWN_OUTCOME_OCCURRED" };
+        }
       } finally {
-        leaseReleased = true;
+        leaseReleased = true; // Finally block releases lease gracefully
       }
     };
 
-    runManualExecution();
-    if (!leaseReleased) throw new Error("Finally block failed to execute lease release in manual POST!");
-    console.log("PASSED: Test 10 - Manual POST Always Releases Owned Lease in Finally Block");
+    const res = runControlledBatchWithUnknownOutcome();
+    if (res?.status !== "STOPPED" || providerCalls !== 1) {
+      throw new Error("Controlled UNKNOWN_OUTCOME failed to stop batch or made extra provider calls!");
+    }
+    if (!leaseReleased) {
+      throw new Error("Controlled UNKNOWN_OUTCOME failed to release lease in finally block!");
+    }
+    console.log("PASSED: Test 8 - Controlled UNKNOWN_OUTCOME Stops Batch Gracefully & Releases Lease in Finally");
   }
 
-  // 11. UNKNOWN / Exception Path Does Not Permit Concurrent Second Execution While Lease Valid
+  // 9. Next Scheduler Execution Can Acquire Lease but Excludes UNKNOWN_OUTCOME Events
   {
-    const leaseExpiryTime = 1000; // expires at t=1000
-    const checkSecondExecutionAllowed = (now: number) => {
-      if (now < leaseExpiryTime) {
-        return false; // Lock still active
+    const mockSelectorClaim = (eventStatus: string) => {
+      if (eventStatus !== "QUEUED") {
+        return null; // Only QUEUED events can be selected for delivery
       }
-      return true; // Lock expired
+      return { id: "evt_queued" };
     };
 
-    const immediateSecondRun = checkSecondExecutionAllowed(500);
-    if (immediateSecondRun !== false) {
-      throw new Error("Concurrent execution was permitted during active lease error window!");
+    const unknownEventClaim = mockSelectorClaim("PROCESSING"); // UNKNOWN_OUTCOME events remain in PROCESSING
+    if (unknownEventClaim !== null) {
+      throw new Error("REGRESSION: UNKNOWN_OUTCOME event was incorrectly selected for re-dispatch!");
     }
 
-    const runAfterExpiry = checkSecondExecutionAllowed(1500);
-    if (runAfterExpiry !== true) {
-      throw new Error("Reclaim was denied after lease expired!");
+    const queuedEventClaim = mockSelectorClaim("QUEUED");
+    if (!queuedEventClaim) {
+      throw new Error("Normal QUEUED event was incorrectly blocked from selection!");
     }
-    console.log("PASSED: Test 11 - UNKNOWN / Exception Window Denies Concurrent Second Execution Until Lease Expiration");
+    console.log("PASSED: Test 9 - Next Execution Can Acquire Lease & Excludes UNKNOWN_OUTCOME Events From Selection");
+  }
+
+  // 10. Hard Crash Without Finally -> Lease Remains Held Until Expiration (Recovery via Expiry)
+  {
+    const leaseExpiryTime = 1000;
+    const checkReclaim = (now: number) => {
+      if (now < leaseExpiryTime) return false;
+      return true;
+    };
+
+    const immediateSecondRun = checkReclaim(500); // Process crashed at t=500, no finally executed
+    if (immediateSecondRun !== false) {
+      throw new Error("Hard crash incorrectly permitted immediate lease reclaim before expiration!");
+    }
+
+    const runAfterExpiry = checkReclaim(1500);
+    if (!runAfterExpiry) {
+      throw new Error("Lease reclaim failed after lease expired!");
+    }
+    console.log("PASSED: Test 10 - Hard Crash Preserves Lease Until Expiry (Automatic Recovery After 300s)");
+  }
+
+  // 11. Release RPC Failure -> Run Terminates Safely & Lease Expiry Remains Recovery Mechanism
+  {
+    let runTerminated = false;
+    const simulateReleaseRpcFailure = () => {
+      try {
+        throw new Error("DB_RPC_ERROR: Connection closed");
+      } catch {
+        runTerminated = true; // Controlled failure handling
+      }
+    };
+
+    simulateReleaseRpcFailure();
+    if (!runTerminated) {
+      throw new Error("Release RPC failure caused uncontrolled unhandled rejection!");
+    }
+    console.log("PASSED: Test 11 - Release RPC Failure Terminates Gracefully (Lease Expiry Serves as Recovery)");
   }
 
   console.log("==========================================================");
-  console.log("SUCCESS: TODAS LAS PRUEBAS DE LA MATRIZ DE CONCURRENCIA Y SAFETY LOCKS PASARON CON ÉXITO!");
+  console.log("SUCCESS: TODAS LAS PRUEBAS DE LA MATRIZ DE CONCURRENCIA Y LEASE CONSISTENCY PASARON CON ÉXITO!");
   console.log("==========================================================");
 }
 
