@@ -16,6 +16,7 @@ export interface ProviderDeliveryRequest {
   providerIdempotencyKey: string;
   subject?: string;
   body?: string;
+  replyTo?: string;
   metadata?: Record<string, unknown>;
 }
 
