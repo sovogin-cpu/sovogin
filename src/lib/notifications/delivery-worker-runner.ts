@@ -78,6 +78,7 @@ export async function runNextWorkerDelivery(
   // 5. Run delivery once for claimed event using pre-claimed token from server selector
   const result = await orchestrator.runDeliveryOnce(claim.event_id, {
     preClaimedToken: claim.claim_token,
+    eligibilityEvaluator: createDbEligibilityEvaluator(supabase),
   });
 
   return {
@@ -129,5 +130,58 @@ export async function runWorkerDeliveryForEvent(
     dispatchCount: result.dispatchCount,
     providerMessageId: result.providerMessageId,
     error: result.error,
+  };
+}
+
+export function createDbEligibilityEvaluator(supabase: any) {
+  return async (eventId: string) => {
+    const { data: ev } = await supabase
+      .from("collection_notification_events")
+      .select("id, associate_id, channel, automation_type, reference_date, recipient_email")
+      .eq("id", eventId)
+      .single();
+
+    if (!ev) {
+      return { eligible: false, suppressionReason: "EVENT_NOT_FOUND" };
+    }
+
+    const { data: assoc } = await supabase
+      .from("associates")
+      .select("full_name, email")
+      .eq("id", ev.associate_id)
+      .single();
+
+    const recipient = ev.recipient_email || assoc?.email || "bopsoluciones@gmail.com";
+    const associateName = assoc?.full_name || "Asociado";
+
+    const subject = "Recordatorio: Su membresía SOVOGIN presenta un saldo pendiente de pago";
+    const body = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; padding: 30px; border-radius: 8px; border: 1px solid #e1e8ed;">
+    <h2 style="color: #0f172a;">SOVOGIN — Sociedad de Ginecología y Obstetricia</h2>
+    <p>Estimado(a) <strong>${associateName}</strong>,</p>
+    <p>Le informamos que su membresía en SOVOGIN registra un saldo pendiente de pago correspondiente a su cuota de membresía.</p>
+    <p>Para mantener activos sus beneficios y su estado como miembro en nuestra asociación, le invitamos a revisar su estado de cuenta y realizar su pago en nuestro portal oficial:</p>
+    <p style="text-align: center; margin: 25px 0;">
+      <a href="https://sovogin.vercel.app/portal/membresia" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Ver Estado de Cuenta y Pagar</a>
+    </p>
+    <p style="font-size: 14px; color: #64748b;">Si tiene dudas o requiere asistencia con su pago, puede responder directamente a este correo o contactarnos en <a href="mailto:sovogin@gmail.com">sovogin@gmail.com</a>.</p>
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 30px;">
+    <p style="font-size: 12px; color: #94a3b8; text-align: center;">Sociedad de Ginecología y Obstetricia — SOVOGIN<br>https://sovogin.vercel.app</p>
+  </div>
+</body>
+</html>`;
+
+    return {
+      eligible: true,
+      recipient,
+      channel: ev.channel || "email",
+      subject,
+      body,
+    };
   };
 }

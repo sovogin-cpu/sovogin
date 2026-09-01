@@ -17,7 +17,7 @@ export class ResendNotificationDeliveryProvider implements NotificationDeliveryP
 
   constructor(options?: ResendProviderOptions) {
     const apiKey = options?.apiKey || process.env.RESEND_API_KEY;
-    this.fromEmail = options?.fromEmail || process.env.EMAIL_FROM || "SOVOGIN <notificaciones@sovogin.org>";
+    this.fromEmail = options?.fromEmail || process.env.EMAIL_FROM || "SOVOGIN <notificaciones@sovogin.com>";
 
     if (options?.resendClient) {
       this.resend = options.resendClient;
@@ -55,12 +55,17 @@ export class ResendNotificationDeliveryProvider implements NotificationDeliveryP
 
     try {
       // Forward DB provider idempotency key via official Resend SDK request options parameter
-      const payload = {
+      const replyToEmail = request.replyTo || process.env.EMAIL_REPLY_TO || "sovogin@gmail.com";
+      const payload: any = {
         from: this.fromEmail,
         to: [request.recipient.trim()],
         subject: request.subject || "Notificación de Membresía SOVOGIN",
-        html: `<p>${request.body || "Aviso importante de membresía SOVOGIN."}</p>`,
+        html: request.body || "<p>Aviso importante de membresía SOVOGIN.</p>",
       };
+
+      if (replyToEmail && replyToEmail.trim() !== "") {
+        payload.reply_to = replyToEmail.trim();
+      }
 
       const options = {
         idempotencyKey: request.providerIdempotencyKey,
