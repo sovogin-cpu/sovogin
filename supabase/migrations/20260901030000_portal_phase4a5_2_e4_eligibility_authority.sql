@@ -138,7 +138,7 @@ BEGIN
         SELECT a.charge_id, COALESCE(SUM(a.amount), 0) AS total_allocated
         FROM public.membership_payment_allocations a
         JOIN public.membership_payments p ON p.id = a.payment_id
-        WHERE a.associate_id = v_event.associate_id
+        WHERE p.associate_id = v_event.associate_id
           AND a.reversed_at IS NULL
           AND LOWER(COALESCE(p.status, 'completed')) = 'completed'
         GROUP BY a.charge_id
@@ -146,12 +146,13 @@ BEGIN
     charge_adjustments AS (
         SELECT adj.charge_id, COALESCE(SUM(adj.amount), 0) AS total_adjusted
         FROM public.membership_adjustments adj
-        WHERE adj.associate_id = v_event.associate_id
+        JOIN public.membership_charges c ON c.id = adj.charge_id
+        WHERE c.associate_id = v_event.associate_id
           AND LOWER(COALESCE(adj.type, '')) IN ('waiver', 'discount', 'write_off')
           AND adj.id NOT IN (
               SELECT COALESCE(reverses_adjustment_id, '00000000-0000-0000-0000-000000000000'::uuid)
               FROM public.membership_adjustments
-              WHERE associate_id = v_event.associate_id AND LOWER(COALESCE(type, '')) = 'reversal'
+              WHERE LOWER(COALESCE(type, '')) = 'reversal'
           )
         GROUP BY adj.charge_id
     ),
@@ -307,7 +308,7 @@ BEGIN
             SELECT a.charge_id, COALESCE(SUM(a.amount), 0) AS total_allocated
             FROM public.membership_payment_allocations a
             JOIN public.membership_payments p ON p.id = a.payment_id
-            WHERE a.associate_id = v_event.associate_id
+            WHERE p.associate_id = v_event.associate_id
               AND a.reversed_at IS NULL
               AND LOWER(COALESCE(p.status, 'completed')) = 'completed'
             GROUP BY a.charge_id
@@ -315,12 +316,13 @@ BEGIN
         charge_adjustments AS (
             SELECT adj.charge_id, COALESCE(SUM(adj.amount), 0) AS total_adjusted
             FROM public.membership_adjustments adj
-            WHERE adj.associate_id = v_event.associate_id
+            JOIN public.membership_charges c ON c.id = adj.charge_id
+            WHERE c.associate_id = v_event.associate_id
               AND LOWER(COALESCE(adj.type, '')) IN ('waiver', 'discount', 'write_off')
               AND adj.id NOT IN (
                   SELECT COALESCE(reverses_adjustment_id, '00000000-0000-0000-0000-000000000000'::uuid)
                   FROM public.membership_adjustments
-                  WHERE associate_id = v_event.associate_id AND LOWER(COALESCE(type, '')) = 'reversal'
+                  WHERE LOWER(COALESCE(type, '')) = 'reversal'
               )
             GROUP BY adj.charge_id
         ),
@@ -348,11 +350,6 @@ BEGIN
     END IF;
 
     IF NOT v_business_eligible THEN
-        UPDATE public.collection_notification_events
-        SET suppression_reason = v_ineligibility_reason,
-            updated_at = clock_timestamp()
-        WHERE id = p_event_id;
-
         RETURN QUERY SELECT
             FALSE::BOOLEAN,
             p_event_id,
