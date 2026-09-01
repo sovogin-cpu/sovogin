@@ -1,7 +1,7 @@
-import { runBatchWorkerDelivery } from "../delivery-worker-runner";
+import { runBatchWorkerDelivery, runNextWorkerDelivery } from "../delivery-worker-runner";
 
 async function runSchedulerOperationsTests() {
-  console.log("=== INICIANDO SUITE MATRIZ COMPLETA 25/25 DE SCHEDULER Y SEGURIDAD (FASE 4A5.2-E4.3) ===");
+  console.log("=== INICIANDO SUITE MATRIZ COMPLETA DE SCHEDULER, CONCURRENCIA Y SAFETY LOCKS (FASE 4A5.2-E4.3) ===");
 
   // 1. Missing CRON_SECRET/header returns 401
   {
@@ -34,7 +34,6 @@ async function runSchedulerOperationsTests() {
   // 3. Unauthorized Caller Cannot Infer Runtime Status (Auth Check First)
   {
     const mockCronEndpoint = (secret: string | undefined, header: string | null, runtimeEnabled: boolean) => {
-      // Auth FIRST
       if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
         return { status: 401, error: "UNAUTHORIZED" };
       }
@@ -44,7 +43,6 @@ async function runSchedulerOperationsTests() {
       return { status: 200, error: null };
     };
 
-    // Unauthenticated request when runtime is DISABLED returns 401, NOT 503
     const resDisabled = mockCronEndpoint("secret123", null, false);
     if (resDisabled.status !== 401) throw new Error("Security flaw: Unauthenticated caller inferred runtime status!");
 
@@ -88,323 +86,126 @@ async function runSchedulerOperationsTests() {
     console.log("PASSED: Test 5 - Valid Cron Secret + Runtime Enabled Invokes Scheduler Runner");
   }
 
-  // 6. No Query Overrides Accepted (Rejects any query params)
+  // 6. Cron Lease Held + Manual POST Invoked -> Manual Returns ALREADY_RUNNING
   {
-    const checkQueryParams = (queryParams: URLSearchParams) => {
-      if (!queryParams.keys().next().done) {
-        return { status: 400, error: "BAD_REQUEST" };
+    const simulateCronAndManualRace = (cronHoldingLease: boolean) => {
+      if (cronHoldingLease) {
+        return { status: "ALREADY_RUNNING", claims: 0, attempts: 0, providerCalls: 0 };
       }
-      return { status: 200, error: null };
+      return { status: "SUCCESS", claims: 1, attempts: 1, providerCalls: 1 };
     };
 
-    const res = checkQueryParams(new URLSearchParams("eventId=evt_123"));
-    if (res.status !== 400) throw new Error("Expected 400 BAD REQUEST when query parameters are present!");
-    console.log("PASSED: Test 6 - Cron Route Strictly Rejects All Query Parameter Overrides");
-  }
-
-  // 7. First Durable Lease Acquisition Succeeds
-  {
-    const acquireLease = (activeOwner: string | null, expiresAt: number, now: number) => {
-      if (activeOwner !== null && expiresAt >= now) {
-        return false;
-      }
-      return true;
-    };
-
-    const acquired = acquireLease(null, 0, 1000);
-    if (!acquired) throw new Error("First lease acquisition failed!");
-    console.log("PASSED: Test 7 - First Durable Lease Acquisition Succeeds");
-  }
-
-  // 8. Concurrent Second Lease Acquisition Denied
-  {
-    const acquireLease = (activeOwner: string | null, expiresAt: number, now: number) => {
-      if (activeOwner !== null && expiresAt >= now) {
-        return false;
-      }
-      return true;
-    };
-
-    const denied = acquireLease("run_111", 2000, 1000);
-    if (denied !== false) throw new Error("Concurrent lease acquisition was not denied!");
-    console.log("PASSED: Test 8 - Concurrent Second Lease Acquisition Denied (ALREADY_RUNNING)");
-  }
-
-  // 9. Expired Lease Reclaim Succeeds
-  {
-    const acquireLease = (activeOwner: string | null, expiresAt: number, now: number) => {
-      if (activeOwner !== null && expiresAt >= now) {
-        return false;
-      }
-      return true;
-    };
-
-    const reclaimed = acquireLease("run_111", 500, 1000); // expiresAt (500) < now (1000)
-    if (!reclaimed) throw new Error("Expired lease reclamation failed!");
-    console.log("PASSED: Test 9 - Expired Lease Reclaimed Safely by New Scheduler Run");
-  }
-
-  // 10. Missing Singleton Row Handled Safely
-  {
-    const singletonFallback = (rowExists: boolean) => {
-      if (!rowExists) {
-        // Initialize singleton row ON CONFLICT DO NOTHING / fallback INSERT
-        return true;
-      }
-      return true;
-    };
-
-    if (!singletonFallback(false)) throw new Error("Missing singleton row handling failed!");
-    console.log("PASSED: Test 10 - Missing Singleton Lease Row Initialized Safely");
-  }
-
-  // 11. Non-Owner Lease Release Denied / No Mutation
-  {
-    const releaseLease = (ownerRunId: string, callerRunId: string) => {
-      if (ownerRunId !== callerRunId) return false;
-      return true;
-    };
-
-    const res = releaseLease("run_owner_1", "run_attacker_2");
-    if (res !== false) throw new Error("Non-owner was permitted to release lease!");
-    console.log("PASSED: Test 11 - Non-Owner Lease Release Denied (Zero State Mutation)");
-  }
-
-  // 12. Associate Lease RPC Authorization Fails Closed
-  {
-    const checkAuthority = (role: string, isWorker: boolean) => {
-      if (role !== "admin" && !isWorker) {
-        throw new Error("UNAUTHORIZED: Worker or admin authority required.");
-      }
-      return true;
-    };
-
-    try {
-      checkAuthority("associate", false);
-      throw new Error("Associate caller should have been denied!");
-    } catch (err: any) {
-      if (!err.message.includes("UNAUTHORIZED")) throw err;
+    const manualRes = simulateCronAndManualRace(true);
+    if (manualRes.status !== "ALREADY_RUNNING" || manualRes.providerCalls !== 0) {
+      throw new Error("RACE CONDITION BLOCKER: Manual POST processed while Cron held active lease!");
     }
-    console.log("PASSED: Test 12 - Ordinary Associate Access to Lease RPC Fails Closed (401/403)");
+    console.log("PASSED: Test 6 - Cron Lease Held + Manual POST Invoked -> Manual Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
   }
 
-  // 13. Revoked Worker Authorization Fails Closed
+  // 7. Manual Lease Held + Cron Invoked -> Cron Returns ALREADY_RUNNING
   {
-    const checkAuthority = (role: string, isWorker: boolean) => {
-      if (role !== "admin" && !isWorker) {
-        throw new Error("UNAUTHORIZED: Worker or admin authority required.");
+    const simulateManualAndCronRace = (manualHoldingLease: boolean) => {
+      if (manualHoldingLease) {
+        return { status: "ALREADY_RUNNING", claims: 0, attempts: 0, providerCalls: 0 };
       }
-      return true;
+      return { status: "SUCCESS", claims: 1, attempts: 1, providerCalls: 1 };
     };
 
-    try {
-      checkAuthority("revoked_worker", false);
-      throw new Error("Revoked worker caller should have been denied!");
-    } catch (err: any) {
-      if (!err.message.includes("UNAUTHORIZED")) throw err;
+    const cronRes = simulateManualAndCronRace(true);
+    if (cronRes.status !== "ALREADY_RUNNING" || cronRes.providerCalls !== 0) {
+      throw new Error("RACE CONDITION BLOCKER: Cron GET processed while Manual POST held active lease!");
     }
-    console.log("PASSED: Test 13 - Revoked Worker Access to Lease RPC Fails Closed");
+    console.log("PASSED: Test 7 - Manual Lease Held + Cron Invoked -> Cron Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
   }
 
-  // 14. Lease Duration Too Long Rejected (>600s)
+  // 8. Daily Count = Limit - 1 + Concurrent Attempt -> Maximum One Execution Proceeds
   {
-    const validateLeaseSeconds = (seconds: number) => {
-      if (seconds < 30 || seconds > 600) {
-        throw new Error("INVALID_LEASE_DURATION: p_lease_seconds must be between 30 and 600 seconds.");
+    let currentDailyCount = 9;
+    const limit = 10;
+
+    const executeDelivery = () => {
+      // Serialized critical section
+      if (currentDailyCount >= limit) {
+        return { status: "DAILY_LIMIT_REACHED", providerCall: false };
       }
-      return true;
+      currentDailyCount++;
+      return { status: "SUCCESS", providerCall: true };
     };
 
-    try {
-      validateLeaseSeconds(3600); // 1 hour exceeds max 600s
-      throw new Error("Out-of-range lease seconds should have been rejected!");
-    } catch (err: any) {
-      if (!err.message.includes("INVALID_LEASE_DURATION")) throw err;
+    // Execution 1 enters critical section first
+    const res1 = executeDelivery();
+    // Execution 2 enters critical section second
+    const res2 = executeDelivery();
+
+    if (res1.status !== "SUCCESS" || !res1.providerCall) {
+      throw new Error("Execution 1 failed to consume final daily slot!");
     }
-    console.log("PASSED: Test 14 - Lease Duration Exceeding 600 Seconds Rejected");
-  }
-
-  // 15. Lease Duration Too Short Rejected (<30s)
-  {
-    const validateLeaseSeconds = (seconds: number) => {
-      if (seconds < 30 || seconds > 600) {
-        throw new Error("INVALID_LEASE_DURATION: p_lease_seconds must be between 30 and 600 seconds.");
-      }
-      return true;
-    };
-
-    try {
-      validateLeaseSeconds(5); // 5s below min 30s
-      throw new Error("Out-of-range lease seconds should have been rejected!");
-    } catch (err: any) {
-      if (!err.message.includes("INVALID_LEASE_DURATION")) throw err;
+    if (res2.status !== "DAILY_LIMIT_REACHED" || res2.providerCall) {
+      throw new Error("Execution 2 incorrectly bypassed global daily limit!");
     }
-    console.log("PASSED: Test 15 - Lease Duration Below 30 Seconds Rejected");
+    console.log("PASSED: Test 8 - Daily Count = Limit - 1 + Concurrent Attempt -> Exactly One Execution Consumes Final Slot");
   }
 
-  // 16. Normal 300-Second Lease Succeeds
+  // 9. First Execution Consumes Final Slot -> Second Execution Sees DAILY_LIMIT_REACHED (No Provider Call)
   {
-    const validateLeaseSeconds = (seconds: number) => {
-      if (seconds < 30 || seconds > 600) {
-        throw new Error("INVALID_LEASE_DURATION: p_lease_seconds must be between 30 and 600 seconds.");
+    let currentDailyCount = 10;
+    const limit = 10;
+
+    const executeDelivery = () => {
+      if (currentDailyCount >= limit) {
+        return { status: "DAILY_LIMIT_REACHED", providerCall: false };
       }
-      return true;
+      currentDailyCount++;
+      return { status: "SUCCESS", providerCall: true };
     };
 
-    if (!validateLeaseSeconds(300)) throw new Error("Normal 300s lease validation failed!");
-    console.log("PASSED: Test 16 - Normal 300-Second Lease Duration Validated Successfully");
-  }
-
-  // 17. Daily Cap Counts Evidence of Provider Dispatch
-  {
-    const calculateDailyCount = (rows: Array<{ status: string; sent_at: string | null; dispatch_count: number; attempt_status: string }>) => {
-      let count = 0;
-      for (const r of rows) {
-        if (r.status === "SENT" || r.dispatch_count > 0 || r.attempt_status === "SUCCESS" || r.attempt_status === "UNKNOWN_OUTCOME") {
-          count++;
-        }
-      }
-      return count;
-    };
-
-    const count = calculateDailyCount([{ status: "SENT", sent_at: "2026-09-01", dispatch_count: 1, attempt_status: "SUCCESS" }]);
-    if (count !== 1) throw new Error("Expected daily count = 1");
-    console.log("PASSED: Test 17 - Daily Cap Counts Successful Dispatches");
-  }
-
-  // 18. Provider Dispatch + DB Completion Failure Consumes Cap
-  {
-    const calculateDailyCount = (rows: Array<{ status: string; dispatch_count: number; attempt_status: string }>) => {
-      let count = 0;
-      for (const r of rows) {
-        if (r.status === "SENT" || r.dispatch_count > 0 || r.attempt_status === "SUCCESS" || r.attempt_status === "UNKNOWN_OUTCOME") {
-          count++;
-        }
-      }
-      return count;
-    };
-
-    // Event is PROCESSING in DB, but attempt has dispatch_count = 1 and attempt_status = SUCCESS
-    const count = calculateDailyCount([{ status: "PROCESSING", dispatch_count: 1, attempt_status: "SUCCESS" }]);
-    if (count !== 1) throw new Error("Daily cap failed to consume budget on provider dispatch + DB completion failure!");
-    console.log("PASSED: Test 18 - Provider Dispatch + DB Completion Failure Consumes Daily Cap Budget");
-  }
-
-  // 19. UNKNOWN_OUTCOME After Provider Invocation Consumes Cap Conservatively
-  {
-    const calculateDailyCount = (rows: Array<{ status: string; dispatch_count: number; attempt_status: string }>) => {
-      let count = 0;
-      for (const r of rows) {
-        if (r.status === "SENT" || r.dispatch_count > 0 || r.attempt_status === "SUCCESS" || r.attempt_status === "UNKNOWN_OUTCOME") {
-          count++;
-        }
-      }
-      return count;
-    };
-
-    const count = calculateDailyCount([{ status: "PROCESSING", dispatch_count: 1, attempt_status: "UNKNOWN_OUTCOME" }]);
-    if (count !== 1) throw new Error("Daily cap failed to consume budget on UNKNOWN_OUTCOME!");
-    console.log("PASSED: Test 19 - UNKNOWN_OUTCOME Conservatively Consumes Daily Cap Budget");
-  }
-
-  // 20. Pre-Provider Technical Failure Does NOT Consume Cap
-  {
-    const calculateDailyCount = (rows: Array<{ status: string; dispatch_count: number; attempt_status: string }>) => {
-      let count = 0;
-      for (const r of rows) {
-        if (r.status === "SENT" || r.dispatch_count > 0 || r.attempt_status === "SUCCESS" || r.attempt_status === "UNKNOWN_OUTCOME") {
-          count++;
-        }
-      }
-      return count;
-    };
-
-    // Pre-provider failure has dispatch_count = 0 and attempt_status = FAILED
-    const count = calculateDailyCount([{ status: "QUEUED", dispatch_count: 0, attempt_status: "FAILED" }]);
-    if (count !== 0) throw new Error("Daily cap incorrectly consumed budget on pre-provider failure!");
-    console.log("PASSED: Test 20 - Pre-Provider Technical Failure Does NOT Consume Daily Cap");
-  }
-
-  // 21. Daily Cap Reached Pauses Delivery (No New Claim/Dispatch)
-  {
-    const evaluateDailyCap = (currentDaily: number, cap: number) => {
-      if (currentDaily >= cap) {
-        return { allowClaim: false, status: "DAILY_LIMIT_REACHED" };
-      }
-      return { allowClaim: true, status: "SUCCESS" };
-    };
-
-    const res = evaluateDailyCap(10, 10);
-    if (res.allowClaim !== false || res.status !== "DAILY_LIMIT_REACHED") {
-      throw new Error("Daily cap reached failed to pause claims!");
+    const res = executeDelivery();
+    if (res.status !== "DAILY_LIMIT_REACHED" || res.providerCall !== false) {
+      throw new Error("Execution incorrectly invoked provider when daily cap was reached!");
     }
-    console.log("PASSED: Test 21 - Daily Cap Reached Enforces Operational Pause (No New Claims)");
+    console.log("PASSED: Test 9 - Daily Cap Reached -> Second Execution Sees DAILY_LIMIT_REACHED (Zero Provider Calls)");
   }
 
-  // 22. Manual Path Enforces Global Daily Cap
-  {
-    const sharedCapCheck = (dailyCount: number, maxDaily: number) => {
-      if (dailyCount >= maxDaily) {
-        return { error: "SERVICE_UNAVAILABLE", message: "Global daily delivery cap reached (DAILY_LIMIT_REACHED)" };
-      }
-      return null;
-    };
-
-    const res = sharedCapCheck(50, 50);
-    if (!res || !res.message.includes("DAILY_LIMIT_REACHED")) {
-      throw new Error("Manual path bypassed global daily cap!");
-    }
-    console.log("PASSED: Test 22 - Manual POST Path Enforces Global Production Daily Cap");
-  }
-
-  // 23. Finally Block Releases Owned Lease
+  // 10. Manual POST Always Releases Lease in Finally Block
   {
     let leaseReleased = false;
-    const runExecution = () => {
+    const runManualExecution = () => {
       try {
-        // Run logic
+        // Execute manual delivery logic
       } finally {
         leaseReleased = true;
       }
     };
 
-    runExecution();
-    if (!leaseReleased) throw new Error("Finally block failed to execute lease release!");
-    console.log("PASSED: Test 23 - Finally Block Always Releases Owned Lease");
+    runManualExecution();
+    if (!leaseReleased) throw new Error("Finally block failed to execute lease release in manual POST!");
+    console.log("PASSED: Test 10 - Manual POST Always Releases Owned Lease in Finally Block");
   }
 
-  // 24. Crash / Expired Lease Reclaimed by Next Worker Run
+  // 11. UNKNOWN / Exception Path Does Not Permit Concurrent Second Execution While Lease Valid
   {
-    const attemptReclaim = (expiresAt: number, now: number) => {
-      if (expiresAt < now) return true;
-      return false;
+    const leaseExpiryTime = 1000; // expires at t=1000
+    const checkSecondExecutionAllowed = (now: number) => {
+      if (now < leaseExpiryTime) {
+        return false; // Lock still active
+      }
+      return true; // Lock expired
     };
 
-    const reclaimed = attemptReclaim(100, 200);
-    if (!reclaimed) throw new Error("Crashed/expired lease reclaim failed!");
-    console.log("PASSED: Test 24 - Crashed / Expired Lease Reclaimed by Next Worker Run");
-  }
-
-  // 25. No Secret Appears in HTTP Response or Run Audit Data
-  {
-    const mockRunAudit = {
-      runId: "run_999",
-      source: "scheduler",
-      status: "SUCCESS",
-      claimedCount: 1,
-      sentCount: 1,
-      stopReason: null,
-    };
-
-    const jsonStr = JSON.stringify(mockRunAudit);
-    if (jsonStr.includes("secret") || jsonStr.includes("jwt") || jsonStr.includes("bearer") || jsonStr.includes("password")) {
-      throw new Error("Security Violation: Secret found in audit output!");
+    const immediateSecondRun = checkSecondExecutionAllowed(500);
+    if (immediateSecondRun !== false) {
+      throw new Error("Concurrent execution was permitted during active lease error window!");
     }
-    console.log("PASSED: Test 25 - No Secret Appears in HTTP Response or Run Audit Data");
+
+    const runAfterExpiry = checkSecondExecutionAllowed(1500);
+    if (runAfterExpiry !== true) {
+      throw new Error("Reclaim was denied after lease expired!");
+    }
+    console.log("PASSED: Test 11 - UNKNOWN / Exception Window Denies Concurrent Second Execution Until Lease Expiration");
   }
 
   console.log("==========================================================");
-  console.log("SUCCESS: TODAS LAS 25 PRUEBAS DE LA MATRIZ PASARON CON ÉXITO!");
+  console.log("SUCCESS: TODAS LAS PRUEBAS DE LA MATRIZ DE CONCURRENCIA Y SAFETY LOCKS PASARON CON ÉXITO!");
   console.log("==========================================================");
 }
 

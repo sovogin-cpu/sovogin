@@ -18,7 +18,7 @@ function safeCompareSecrets(a: string, b: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  // Prerequisite 1: Runtime Enablement Check (Must occur FIRST before reading worker credentials or signing in)
+  // Prerequisite 1: Runtime Enablement Check
   const runtimeEnabled = process.env.DELIVERY_RUNTIME_ENABLED === "true";
   if (!runtimeEnabled) {
     return NextResponse.json(
@@ -27,11 +27,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Prerequisite 2: Trigger Secret / Cron Secret Configuration Check
+  // Prerequisite 2: Trigger Secret Configuration Check
   const triggerSecret = process.env.DELIVERY_WORKER_TRIGGER_SECRET || process.env.CRON_SECRET;
   if (!triggerSecret || triggerSecret.trim() === "") {
     return NextResponse.json(
-      { error: "DISABLED", message: "Delivery worker endpoint is disabled (DELIVERY_WORKER_TRIGGER_SECRET / CRON_SECRET not configured)" },
+      { error: "DISABLED", message: "Delivery worker endpoint is disabled (DELIVERY_WORKER_TRIGGER_SECRET not configured)" },
       { status: 503 }
     );
   }
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Prerequisite 5: Production Provider Guard (FakeProvider strictly forbidden in production)
+  // Prerequisite 5: Production Provider Guard
   const isProduction = process.env.NODE_ENV === "production";
   if (isProduction && (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.trim() === "")) {
     return NextResponse.json(
@@ -89,10 +89,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Determine mode: mode='single' runs 1 event; default runs bounded batch
     const mode = req.nextUrl.searchParams.get("mode");
     if (mode === "single") {
       const result = await runNextWorkerDelivery();
+
+      if (result.status === "ALREADY_RUNNING") {
+        return NextResponse.json(
+          { error: "ALREADY_RUNNING", message: result.error || "Delivery execution already in progress under active lease" },
+          { status: 409 }
+        );
+      }
+
+      if (result.status === "DAILY_LIMIT_REACHED") {
+        return NextResponse.json(
+          { error: "DAILY_LIMIT_REACHED", message: result.error || "Global daily delivery cap reached" },
+          { status: 503 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: true,
@@ -107,8 +121,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Bounded Batch Execution
+    // Default: Bounded Batch Execution
     const batchResult = await runBatchWorkerDelivery();
+
+    if (batchResult.status === "ALREADY_RUNNING") {
+      return NextResponse.json(
+        { error: "ALREADY_RUNNING", message: batchResult.stopReason || "Delivery execution already in progress under active lease" },
+        { status: 409 }
+      );
+    }
+
+    if (batchResult.status === "DAILY_LIMIT_REACHED") {
+      return NextResponse.json(
+        { error: "DAILY_LIMIT_REACHED", message: batchResult.stopReason || "Global daily delivery cap reached" },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json(
       {

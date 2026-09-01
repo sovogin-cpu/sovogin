@@ -7,12 +7,13 @@ import { NotificationDeliveryProvider } from "./delivery-provider";
 
 export interface WorkerRunnerOptions {
   provider?: NotificationDeliveryProvider;
+  leaseSeconds?: number;
 }
 
 export interface WorkerRunnerResult {
   eventId: string | null;
   workerId: string;
-  status: OrchestratorResult["status"] | "NO_ELIGIBLE_EVENT";
+  status: OrchestratorResult["status"] | "NO_ELIGIBLE_EVENT" | "ALREADY_RUNNING" | "DAILY_LIMIT_REACHED";
   attemptNumber: number | null;
   dispatchCount: number | null;
   providerMessageId: string | null;
@@ -45,7 +46,7 @@ export interface BatchWorkerRunnerResult {
 
 /**
  * Runs server-controlled single-event notification delivery execution using the authenticated worker identity.
- * Claims the next eligible notification atomically via DB RPC.
+ * Acquires shared durable lease and enforces global daily safety cap before claiming.
  */
 export async function runNextWorkerDelivery(
   options?: WorkerRunnerOptions
@@ -67,7 +68,7 @@ export async function runNextWorkerDelivery(
     }
   }
 
-  // Check 2: Absolute Production FakeProvider Prohibition Guard (Zero Escape Hatches)
+  // Check 2: Absolute Production FakeProvider Prohibition Guard
   if (isProduction && (!provider || provider instanceof FakeNotificationDeliveryProvider)) {
     throw new Error("DELIVERY_PROVIDER_NOT_CONFIGURED: Production provider missing or misconfigured; FakeProvider is strictly forbidden in production");
   }
@@ -76,44 +77,147 @@ export async function runNextWorkerDelivery(
     throw new Error("DELIVERY_PROVIDER_NOT_CONFIGURED: Delivery provider not configured");
   }
 
-  // 1. Authenticate worker identity and obtain client carrying worker JWT
-  const { supabase, workerId } = await createDeliveryWorkerClient();
+  const maxEmailsPerDay = parseInt(process.env.DELIVERY_MAX_EMAILS_PER_DAY || "10", 10);
+  const leaseSeconds = options?.leaseSeconds || 300;
+  const deploymentSha = process.env.VERCEL_GIT_COMMIT_SHA || "local";
 
-  // 2. Instantiate repository adapter using worker Supabase client
+  const { supabase, workerId } = await createDeliveryWorkerClient();
   const repository = new SupabaseNotificationDeliveryRepository(supabase);
 
-  // 3. Atomically claim next eligible event via DB server-controlled selector
-  const claim = await repository.claimNextForDelivery();
-  if (!claim) {
+  // 1. Record Run Start
+  const { data: createdRunId } = await supabase.rpc("record_delivery_run_start", {
+    p_source: "manual",
+    p_sha: deploymentSha,
+  });
+  const runId = createdRunId || null;
+
+  if (!runId) {
+    throw new Error("WORKER_ERROR: Unable to record delivery run start ID");
+  }
+
+  // 2. Acquire Shared Durable Execution Lease (Same lease lock used by cron)
+  const { data: leaseAcquired, error: leaseErr } = await supabase.rpc("try_acquire_delivery_scheduler_lease", {
+    p_run_id: runId,
+    p_lease_seconds: leaseSeconds,
+  });
+
+  if (leaseErr || !leaseAcquired) {
+    await supabase.rpc("record_delivery_run_finish", {
+      p_run_id: runId,
+      p_status: "ALREADY_RUNNING",
+      p_claimed: 0,
+      p_sent: 0,
+      p_suppressed: 0,
+      p_transient: 0,
+      p_permanent: 0,
+      p_unknown: 0,
+      p_technical: 0,
+      p_stop_reason: "CONCURRENCY_LEASE_DENIED",
+    });
+
     return {
       eventId: null,
       workerId,
-      status: "NO_ELIGIBLE_EVENT",
+      status: "ALREADY_RUNNING",
       attemptNumber: null,
       dispatchCount: null,
       providerMessageId: null,
-      error: null,
+      error: "CONCURRENCY_LEASE_DENIED: Execution already in progress under active lease",
     };
   }
 
-  // 4. Instantiate delivery orchestrator
-  const orchestrator = new NotificationDeliveryOrchestrator(repository, provider);
+  try {
+    // 3. Check Global Daily Safety Cap
+    const { data: dailyCount, error: dailyErr } = await supabase.rpc("check_daily_delivery_count");
+    if (!dailyErr && typeof dailyCount === "number" && dailyCount >= maxEmailsPerDay) {
+      await supabase.rpc("record_delivery_run_finish", {
+        p_run_id: runId,
+        p_status: "DAILY_LIMIT_REACHED",
+        p_claimed: 0,
+        p_sent: 0,
+        p_suppressed: 0,
+        p_transient: 0,
+        p_permanent: 0,
+        p_unknown: 0,
+        p_technical: 0,
+        p_stop_reason: "DAILY_SAFETY_CAP_REACHED",
+      });
 
-  // 5. Run delivery once for claimed event using pre-claimed token from server selector
-  const result = await orchestrator.runDeliveryOnce(claim.event_id, {
-    preClaimedToken: claim.claim_token,
-    eligibilityEvaluator: createDbEligibilityEvaluator(supabase, claim.claim_token),
-  });
+      return {
+        eventId: null,
+        workerId,
+        status: "DAILY_LIMIT_REACHED",
+        attemptNumber: null,
+        dispatchCount: null,
+        providerMessageId: null,
+        error: "DAILY_SAFETY_CAP_REACHED: Global daily email delivery cap reached",
+      };
+    }
 
-  return {
-    eventId: result.eventId,
-    workerId,
-    status: result.status,
-    attemptNumber: result.attemptNumber,
-    dispatchCount: result.dispatchCount,
-    providerMessageId: result.providerMessageId,
-    error: result.error,
-  };
+    // 4. Atomically claim next eligible event
+    const claim = await repository.claimNextForDelivery();
+    if (!claim) {
+      await supabase.rpc("record_delivery_run_finish", {
+        p_run_id: runId,
+        p_status: "NO_WORK",
+        p_claimed: 0,
+        p_sent: 0,
+        p_suppressed: 0,
+        p_transient: 0,
+        p_permanent: 0,
+        p_unknown: 0,
+        p_technical: 0,
+        p_stop_reason: "NO_ELIGIBLE_EVENT",
+      });
+
+      return {
+        eventId: null,
+        workerId,
+        status: "NO_ELIGIBLE_EVENT",
+        attemptNumber: null,
+        dispatchCount: null,
+        providerMessageId: null,
+        error: null,
+      };
+    }
+
+    // 5. Run delivery once for claimed event
+    const orchestrator = new NotificationDeliveryOrchestrator(repository, provider);
+    const result = await orchestrator.runDeliveryOnce(claim.event_id, {
+      preClaimedToken: claim.claim_token,
+      eligibilityEvaluator: createDbEligibilityEvaluator(supabase, claim.claim_token),
+    });
+
+    let runStatus = "SUCCESS";
+    if (result.status === "PROCESSED_SUPPRESSED") runStatus = "SUPPRESSED";
+    else if (result.status === "PROCESSED_FAILED") runStatus = "FAILED";
+
+    await supabase.rpc("record_delivery_run_finish", {
+      p_run_id: runId,
+      p_status: runStatus,
+      p_claimed: 1,
+      p_sent: result.status === "PROCESSED_SUCCESS" ? 1 : 0,
+      p_suppressed: result.status === "PROCESSED_SUPPRESSED" ? 1 : 0,
+      p_transient: result.status === "PROCESSED_FAILED" ? 1 : 0,
+      p_permanent: 0,
+      p_unknown: 0,
+      p_technical: 0,
+      p_stop_reason: result.error,
+    });
+
+    return {
+      eventId: result.eventId,
+      workerId,
+      status: result.status,
+      attemptNumber: result.attemptNumber,
+      dispatchCount: result.dispatchCount,
+      providerMessageId: result.providerMessageId,
+      error: result.error,
+    };
+  } finally {
+    // 6. Release Lease in Finally Block (Owner check enforced by RPC)
+    await supabase.rpc("release_delivery_scheduler_lease", { p_run_id: runId });
+  }
 }
 
 /**
