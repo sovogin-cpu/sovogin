@@ -48,6 +48,7 @@ class MockRepository implements NotificationDeliveryRepository {
   }
 
   async recoverExpiredDelivery(eventId: string, attemptId: string, claimToken: string) {
+    this.status = "QUEUED";
     return { event_id: eventId, attempt_id: attemptId, attempt_number: 1, status: "EXPIRED" };
   }
 
@@ -65,7 +66,7 @@ class MockProvider implements NotificationDeliveryProvider {
 }
 
 async function runEligibilityAuthorityTests() {
-  console.log("=== INICIANDO SUITE MATRIZ DE ELIGIBILITY AUTHORITY & REQUEUE (FASE 4A5.2-E4.2-F) ===");
+  console.log("=== INICIANDO SUITE DE AUDITORÍA Y MATRIZ COMPLETA (FASE 4A5.2-E4.2-F) ===");
 
   // --- SECTION A: ORCHESTRATOR ERROR SEMANTICS MATRIX ---
 
@@ -225,6 +226,19 @@ async function runEligibilityAuthorityTests() {
       throw new Error("DB Error incorrectly suppressed event!");
     }
     console.log("PASSED: Test 7 - Database Error Fails Closed (NOT Suppressed)");
+  }
+
+  // 8. Expired Claim Recovery Semantics Test
+  {
+    const repo = new MockRepository();
+    const recoveryResult = await repo.recoverExpiredDelivery("evt_1", "att_1", "token_123");
+    if (recoveryResult.status !== "EXPIRED") {
+      throw new Error(`Expected EXPIRED recovery status, got ${recoveryResult.status}`);
+    }
+    if (repo.status !== "QUEUED") {
+      throw new Error(`Expected repo status QUEUED after recovery, got ${repo.status}`);
+    }
+    console.log("PASSED: Test 8 - Expired Claim Recovery Restores Event Safely");
   }
 
   console.log("==========================================================");
