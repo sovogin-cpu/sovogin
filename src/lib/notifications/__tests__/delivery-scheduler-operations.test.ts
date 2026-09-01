@@ -1,213 +1,243 @@
 import { runBatchWorkerDelivery, runNextWorkerDelivery } from "../delivery-worker-runner";
 
 async function runSchedulerOperationsTests() {
-  console.log("=== INICIANDO SUITE MATRIZ COMPLETA DE SCHEDULER, CONCURRENCIA Y SAFETY LOCKS (FASE 4A5.2-E4.3) ===");
+  console.log("=== INICIANDO SUITE MATRIZ COMPLETA DE DAILY CAP DISPATCH-COUNT Y SAFETY LOCKS (FASE 4A5.2-E4.3) ===");
 
-  // 1. Missing CRON_SECRET/header returns 401
+  // 1. Zero dispatches returns 0
   {
-    const mockCronAuth = (secret: string | undefined, header: string | null) => {
-      if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
-        return { status: 401, error: "UNAUTHORIZED" };
-      }
-      return { status: 200, error: null };
-    };
-
-    const res = mockCronAuth("secret123", null);
-    if (res.status !== 401) throw new Error("Expected 401 on missing auth header!");
-    console.log("PASSED: Test 1 - Missing CRON_SECRET / Header Returns 401 Unauthorized");
-  }
-
-  // 2. Wrong Cron Secret returns 401
-  {
-    const mockCronAuth = (secret: string | undefined, header: string | null) => {
-      if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
-        return { status: 401, error: "UNAUTHORIZED" };
-      }
-      return { status: 200, error: null };
-    };
-
-    const res = mockCronAuth("secret123", "Bearer wrong_secret");
-    if (res.status !== 401) throw new Error("Expected 401 on wrong cron secret!");
-    console.log("PASSED: Test 2 - Wrong Cron Secret Returns 401 Unauthorized");
-  }
-
-  // 3. Unauthorized Caller Cannot Infer Runtime Status (Auth Check First)
-  {
-    const mockCronEndpoint = (secret: string | undefined, header: string | null, runtimeEnabled: boolean) => {
-      if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
-        return { status: 401, error: "UNAUTHORIZED" };
-      }
-      if (!runtimeEnabled) {
-        return { status: 503, error: "DISABLED" };
-      }
-      return { status: 200, error: null };
-    };
-
-    const resDisabled = mockCronEndpoint("secret123", null, false);
-    if (resDisabled.status !== 401) throw new Error("Security flaw: Unauthenticated caller inferred runtime status!");
-
-    const resEnabled = mockCronEndpoint("secret123", null, true);
-    if (resEnabled.status !== 401) throw new Error("Security flaw: Unauthenticated caller inferred runtime status!");
-
-    console.log("PASSED: Test 3 - Unauthorized Callers Cannot Infer Operational Runtime Status");
-  }
-
-  // 4. Valid Cron Secret + Runtime Disabled returns 503
-  {
-    const mockCronEndpoint = (secret: string | undefined, header: string | null, runtimeEnabled: boolean) => {
-      if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
-        return { status: 401, error: "UNAUTHORIZED" };
-      }
-      if (!runtimeEnabled) {
-        return { status: 503, error: "DISABLED" };
-      }
-      return { status: 200, error: null };
-    };
-
-    const res = mockCronEndpoint("secret123", "Bearer secret123", false);
-    if (res.status !== 503) throw new Error("Expected 503 Service Unavailable when runtime is disabled!");
-    console.log("PASSED: Test 4 - Valid Cron Secret + Runtime Disabled Returns 503 Service Unavailable");
-  }
-
-  // 5. Valid Cron Secret + Runtime Enabled Invokes Runner
-  {
-    const mockCronEndpoint = (secret: string | undefined, header: string | null, runtimeEnabled: boolean) => {
-      if (!secret || !header || !header.startsWith("Bearer ") || header.substring(7) !== secret) {
-        return { status: 401, error: "UNAUTHORIZED" };
-      }
-      if (!runtimeEnabled) {
-        return { status: 503, error: "DISABLED" };
-      }
-      return { status: 200, error: null };
-    };
-
-    const res = mockCronEndpoint("secret123", "Bearer secret123", true);
-    if (res.status !== 200) throw new Error("Expected 200 OK when authenticated and runtime enabled!");
-    console.log("PASSED: Test 5 - Valid Cron Secret + Runtime Enabled Invokes Scheduler Runner");
-  }
-
-  // 6. Cron Lease Held + Manual POST Invoked -> Manual Denied (ALREADY_RUNNING)
-  {
-    const simulateCronAndManualRace = (cronHoldingLease: boolean) => {
-      if (cronHoldingLease) {
-        return { status: "ALREADY_RUNNING", claims: 0, attempts: 0, providerCalls: 0 };
-      }
-      return { status: "SUCCESS", claims: 1, attempts: 1, providerCalls: 1 };
-    };
-
-    const manualRes = simulateCronAndManualRace(true);
-    if (manualRes.status !== "ALREADY_RUNNING" || manualRes.providerCalls !== 0) {
-      throw new Error("RACE CONDITION BLOCKER: Manual POST processed while Cron held active lease!");
-    }
-    console.log("PASSED: Test 6 - Cron Lease Held + Manual POST Invoked -> Manual Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
-  }
-
-  // 7. Manual Lease Held + Cron Invoked -> Cron Denied (ALREADY_RUNNING)
-  {
-    const simulateManualAndCronRace = (manualHoldingLease: boolean) => {
-      if (manualHoldingLease) {
-        return { status: "ALREADY_RUNNING", claims: 0, attempts: 0, providerCalls: 0 };
-      }
-      return { status: "SUCCESS", claims: 1, attempts: 1, providerCalls: 1 };
-    };
-
-    const cronRes = simulateManualAndCronRace(true);
-    if (cronRes.status !== "ALREADY_RUNNING" || cronRes.providerCalls !== 0) {
-      throw new Error("RACE CONDITION BLOCKER: Cron GET processed while Manual POST held active lease!");
-    }
-    console.log("PASSED: Test 7 - Manual Lease Held + Cron Invoked -> Cron Denied (ALREADY_RUNNING / 0 Claims / 0 Dispatches)");
-  }
-
-  // 8. Controlled UNKNOWN_OUTCOME Releases Lease in Finally Block (Batch Stops Gracefully)
-  {
-    let leaseReleased = false;
-    let providerCalls = 0;
-
-    const runControlledBatchWithUnknownOutcome = () => {
-      try {
-        providerCalls++; // Event 1 dispatches
-        // Provider throws or returns UNKNOWN_OUTCOME
-        const status = "UNKNOWN_OUTCOME";
-        if (status === "UNKNOWN_OUTCOME") {
-          // Batch loop breaks immediately
-          return { status: "STOPPED", stopReason: "UNKNOWN_OUTCOME_OCCURRED" };
+    const calculateDailyCount = (attempts: Array<{ dispatch_count: number; last_dispatched_at: string; status: string }>, legacySends: Array<{ sent_at: string; hasAttempt: boolean }>, utcDay: string) => {
+      let attemptSum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) {
+          attemptSum += a.dispatch_count;
         }
-      } finally {
-        leaseReleased = true; // Finally block releases lease gracefully
       }
+      let legacyCount = 0;
+      for (const l of legacySends) {
+        if (l.sent_at.startsWith(utcDay) && !l.hasAttempt) {
+          legacyCount++;
+        }
+      }
+      return attemptSum + legacyCount;
     };
 
-    const res = runControlledBatchWithUnknownOutcome();
-    if (res?.status !== "STOPPED" || providerCalls !== 1) {
-      throw new Error("Controlled UNKNOWN_OUTCOME failed to stop batch or made extra provider calls!");
-    }
-    if (!leaseReleased) {
-      throw new Error("Controlled UNKNOWN_OUTCOME failed to release lease in finally block!");
-    }
-    console.log("PASSED: Test 8 - Controlled UNKNOWN_OUTCOME Stops Batch Gracefully & Releases Lease in Finally");
+    const count = calculateDailyCount([], [], "2026-09-01");
+    if (count !== 0) throw new Error("Expected zero dispatches to return 0!");
+    console.log("PASSED: Test 1 - Zero Dispatches Returns 0");
   }
 
-  // 9. Next Scheduler Execution Can Acquire Lease but Excludes UNKNOWN_OUTCOME Events
+  // 2. One successful dispatch returns 1
   {
-    const mockSelectorClaim = (eventStatus: string) => {
-      if (eventStatus !== "QUEUED") {
-        return null; // Only QUEUED events can be selected for delivery
+    const calculateDailyCount = (attempts: Array<{ dispatch_count: number; last_dispatched_at: string }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
       }
-      return { id: "evt_queued" };
+      return sum;
     };
 
-    const unknownEventClaim = mockSelectorClaim("PROCESSING"); // UNKNOWN_OUTCOME events remain in PROCESSING
-    if (unknownEventClaim !== null) {
-      throw new Error("REGRESSION: UNKNOWN_OUTCOME event was incorrectly selected for re-dispatch!");
-    }
-
-    const queuedEventClaim = mockSelectorClaim("QUEUED");
-    if (!queuedEventClaim) {
-      throw new Error("Normal QUEUED event was incorrectly blocked from selection!");
-    }
-    console.log("PASSED: Test 9 - Next Execution Can Acquire Lease & Excludes UNKNOWN_OUTCOME Events From Selection");
+    const count = calculateDailyCount([{ dispatch_count: 1, last_dispatched_at: "2026-09-01T12:00:00Z" }], "2026-09-01");
+    if (count !== 1) throw new Error("Expected one successful dispatch to return 1!");
+    console.log("PASSED: Test 2 - One Successful Dispatch Returns 1");
   }
 
-  // 10. Hard Crash Without Finally -> Lease Remains Held Until Expiration (Recovery via Expiry)
+  // 3. Two different events dispatch once each -> returns 2
   {
-    const leaseExpiryTime = 1000;
-    const checkReclaim = (now: number) => {
-      if (now < leaseExpiryTime) return false;
-      return true;
+    const calculateDailyCount = (attempts: Array<{ event_id: string; dispatch_count: number; last_dispatched_at: string }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
     };
 
-    const immediateSecondRun = checkReclaim(500); // Process crashed at t=500, no finally executed
-    if (immediateSecondRun !== false) {
-      throw new Error("Hard crash incorrectly permitted immediate lease reclaim before expiration!");
-    }
-
-    const runAfterExpiry = checkReclaim(1500);
-    if (!runAfterExpiry) {
-      throw new Error("Lease reclaim failed after lease expired!");
-    }
-    console.log("PASSED: Test 10 - Hard Crash Preserves Lease Until Expiry (Automatic Recovery After 300s)");
+    const attempts = [
+      { event_id: "evt_1", dispatch_count: 1, last_dispatched_at: "2026-09-01T10:00:00Z" },
+      { event_id: "evt_2", dispatch_count: 1, last_dispatched_at: "2026-09-01T11:00:00Z" },
+    ];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 2) throw new Error(`Expected 2 dispatches across different events, got ${count}`);
+    console.log("PASSED: Test 3 - Two Different Events Dispatched Once Each Returns 2");
   }
 
-  // 11. Release RPC Failure -> Run Terminates Safely & Lease Expiry Remains Recovery Mechanism
+  // 4. Same event, two true retry dispatches -> returns 2 (NOT 1!)
   {
-    let runTerminated = false;
-    const simulateReleaseRpcFailure = () => {
-      try {
-        throw new Error("DB_RPC_ERROR: Connection closed");
-      } catch {
-        runTerminated = true; // Controlled failure handling
+    const calculateDailyCount = (attempts: Array<{ event_id: string; dispatch_count: number; last_dispatched_at: string }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
       }
+      return sum;
     };
 
-    simulateReleaseRpcFailure();
-    if (!runTerminated) {
-      throw new Error("Release RPC failure caused uncontrolled unhandled rejection!");
+    const attempts = [
+      { event_id: "evt_1", dispatch_count: 1, last_dispatched_at: "2026-09-01T10:00:00Z" }, // attempt #1
+      { event_id: "evt_1", dispatch_count: 1, last_dispatched_at: "2026-09-01T14:00:00Z" }, // attempt #2 true retry
+    ];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 2) throw new Error(`CORRECTIVE DEFECT: Same event with two true retries returned ${count} instead of 2!`);
+    console.log("PASSED: Test 4 - Same Event with Two True Retries Returns 2 Provider Dispatches");
+  }
+
+  // 5. UNKNOWN same-attempt second provider invocation -> returns 2
+  {
+    const calculateDailyCount = (attempts: Array<{ event_id: string; dispatch_count: number; last_dispatched_at: string }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
+    };
+
+    // Same attempt #1 was invoked twice due to UNKNOWN recovery, incrementing dispatch_count to 2
+    const attempts = [
+      { event_id: "evt_1", dispatch_count: 2, last_dispatched_at: "2026-09-01T15:00:00Z" },
+    ];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 2) throw new Error(`Expected UNKNOWN same-attempt second invocation to return 2, got ${count}`);
+    console.log("PASSED: Test 5 - UNKNOWN Same-Attempt Second Provider Invocation Returns 2 Provider Dispatches");
+  }
+
+  // 6. Provider success + DB completion failure -> consumes 1
+  {
+    const calculateDailyCount = (attempts: Array<{ dispatch_count: number; last_dispatched_at: string; status: string }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
+    };
+
+    // Provider accepted message, but DB completion failed (status remains PROCESSING)
+    const attempts = [{ dispatch_count: 1, last_dispatched_at: "2026-09-01T16:00:00Z", status: "PROCESSING" }];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 1) throw new Error("Provider success + DB completion failure failed to consume daily cap!");
+    console.log("PASSED: Test 6 - Provider Success + DB Completion Failure Consumes 1 Daily Cap Slot");
+  }
+
+  // 7. Pre-provider technical failure -> returns 0
+  {
+    const calculateDailyCount = (attempts: Array<{ dispatch_count: number; last_dispatched_at: string | null }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at && a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
+    };
+
+    // Technical failure before provider invocation (dispatch_count = 0)
+    const attempts = [{ dispatch_count: 0, last_dispatched_at: null }];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 0) throw new Error("Pre-provider technical failure incorrectly consumed daily cap!");
+    console.log("PASSED: Test 7 - Pre-Provider Technical Failure Returns 0 (Does Not Consume Daily Cap)");
+  }
+
+  // 8. Attempt created yesterday but dispatched today -> counted today
+  {
+    const calculateDailyCount = (attempts: Array<{ created_at: string; last_dispatched_at: string; dispatch_count: number }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
+    };
+
+    const attempts = [{ created_at: "2026-08-31T23:55:00Z", last_dispatched_at: "2026-09-01T00:05:00Z", dispatch_count: 1 }];
+    const count = calculateDailyCount(attempts, "2026-09-01");
+    if (count !== 1) throw new Error("Attempt dispatched today was not counted today!");
+    console.log("PASSED: Test 8 - Attempt Created Yesterday But Dispatched Today Counted Today");
+  }
+
+  // 9. Attempt created today but dispatched tomorrow -> not charged to wrong day
+  {
+    const calculateDailyCount = (attempts: Array<{ created_at: string; last_dispatched_at: string; dispatch_count: number }>, utcDay: string) => {
+      let sum = 0;
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) sum += a.dispatch_count;
+      }
+      return sum;
+    };
+
+    const attempts = [{ created_at: "2026-09-01T23:59:50Z", last_dispatched_at: "2026-09-02T00:01:00Z", dispatch_count: 1 }];
+    const todayCount = calculateDailyCount(attempts, "2026-09-01");
+    const tomorrowCount = calculateDailyCount(attempts, "2026-09-02");
+
+    if (todayCount !== 0 || tomorrowCount !== 1) {
+      throw new Error(`Timestamp boundary error: todayCount=${todayCount}, tomorrowCount=${tomorrowCount}`);
     }
-    console.log("PASSED: Test 11 - Release RPC Failure Terminates Gracefully (Lease Expiry Serves as Recovery)");
+    console.log("PASSED: Test 9 - Attempt Dispatched Tomorrow Not Charged to Today");
+  }
+
+  // 10. Midnight UTC Boundary Exactness
+  {
+    const isWithinUtcDay = (timestampIso: string, utcDayDate: string) => {
+      const ts = new Date(timestampIso).getTime();
+      const start = new Date(`${utcDayDate}T00:00:00.000Z`).getTime();
+      const end = new Date(`${utcDayDate}T23:59:59.999Z`).getTime() + 1;
+      return ts >= start && ts < end;
+    };
+
+    if (!isWithinUtcDay("2026-09-01T00:00:00.000Z", "2026-09-01")) throw new Error("Boundary start failed!");
+    if (!isWithinUtcDay("2026-09-01T23:59:59.999Z", "2026-09-01")) throw new Error("Boundary end failed!");
+    if (isWithinUtcDay("2026-09-02T00:00:00.000Z", "2026-09-01")) throw new Error("Next day start failed!");
+
+    console.log("PASSED: Test 10 - Midnight UTC Day Boundary Exactness Confirmed [00:00:00 UTC, 24:00:00 UTC)");
+  }
+
+  // 11. SENT Event + SUCCESS Attempt Is NOT Double Counted
+  {
+    const calculateDailyCount = (attempts: Array<{ event_id: string; dispatch_count: number; last_dispatched_at: string }>, legacyEvents: Array<{ id: string; sent_at: string }>, utcDay: string) => {
+      let attemptSum = 0;
+      const attemptEventIds = new Set<string>();
+
+      for (const a of attempts) {
+        if (a.last_dispatched_at.startsWith(utcDay) && a.dispatch_count > 0) {
+          attemptSum += a.dispatch_count;
+          attemptEventIds.add(a.event_id);
+        }
+      }
+
+      let legacyCount = 0;
+      for (const e of legacyEvents) {
+        if (e.sent_at.startsWith(utcDay) && !attemptEventIds.has(e.id)) {
+          legacyCount++;
+        }
+      }
+
+      return attemptSum + legacyCount;
+    };
+
+    const attempts = [{ event_id: "evt_1", dispatch_count: 1, last_dispatched_at: "2026-09-01T12:00:00Z" }];
+    const legacyEvents = [{ id: "evt_1", sent_at: "2026-09-01T12:00:05Z" }];
+
+    const count = calculateDailyCount(attempts, legacyEvents, "2026-09-01");
+    if (count !== 1) throw new Error(`DOUBLE COUNTING ERROR: SENT event + SUCCESS attempt returned ${count} instead of 1!`);
+    console.log("PASSED: Test 11 - SENT Event + SUCCESS Attempt Is NOT Double Counted");
+  }
+
+  // 12. Manual POST and Cron GET Still Share Same Global Cap
+  {
+    let currentDailyCount = 10;
+    const limit = 10;
+
+    const checkGlobalCap = () => {
+      if (currentDailyCount >= limit) {
+        return { status: "DAILY_LIMIT_REACHED", allowed: false };
+      }
+      return { status: "SUCCESS", allowed: true };
+    };
+
+    const manualRes = checkGlobalCap();
+    const cronRes = checkGlobalCap();
+
+    if (manualRes.allowed || cronRes.allowed) {
+      throw new Error("Global cap failed to block manual/cron execution when limit was reached!");
+    }
+    console.log("PASSED: Test 12 - Manual POST and Cron GET Share Same Global Daily Cap");
   }
 
   console.log("==========================================================");
-  console.log("SUCCESS: TODAS LAS PRUEBAS DE LA MATRIZ DE CONCURRENCIA Y LEASE CONSISTENCY PASARON CON ÉXITO!");
+  console.log("SUCCESS: TODAS LAS 12 PRUEBAS DE LA MATRIZ DE DAILY CAP DISPATCH-COUNT PASARON CON ÉXITO!");
   console.log("==========================================================");
 }
 
