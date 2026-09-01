@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { runNextWorkerDelivery } from "@/lib/notifications/delivery-worker-runner";
+import { runBatchWorkerDelivery, runNextWorkerDelivery } from "@/lib/notifications/delivery-worker-runner";
 
 /**
  * Constant-time comparison function for trigger secret validation.
@@ -18,7 +18,7 @@ function safeCompareSecrets(a: string, b: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  // Prerequisite 1: Runtime Enablement Check (Must occur FIRST before reading worker credentials or signing in)
+  // Prerequisite 1: Runtime Enablement Check
   const runtimeEnabled = process.env.DELIVERY_RUNTIME_ENABLED === "true";
   if (!runtimeEnabled) {
     return NextResponse.json(
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Prerequisite 2: Trigger Secret Configuration Check
-  const triggerSecret = process.env.DELIVERY_WORKER_TRIGGER_SECRET;
+  const triggerSecret = process.env.DELIVERY_WORKER_TRIGGER_SECRET || process.env.CRON_SECRET;
   if (!triggerSecret || triggerSecret.trim() === "") {
     return NextResponse.json(
       { error: "DISABLED", message: "Delivery worker endpoint is disabled (DELIVERY_WORKER_TRIGGER_SECRET not configured)" },
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Reject forbidden operational fields in HTTP request body
-  const forbiddenFields = ["eventId", "recipient", "provider", "attemptNumber", "claimToken"];
+  const forbiddenFields = ["eventId", "recipient", "provider", "attemptNumber", "claimToken", "maxEventsPerRun", "maxEmailsPerDay"];
   for (const field of forbiddenFields) {
     if (body && Object.prototype.hasOwnProperty.call(body, field)) {
       return NextResponse.json(
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Prerequisite 5: Production Provider Guard (FakeProvider strictly forbidden in production)
+  // Prerequisite 5: Production Provider Guard
   const isProduction = process.env.NODE_ENV === "production";
   if (isProduction && (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.trim() === "")) {
     return NextResponse.json(
@@ -89,18 +89,69 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Server-controlled execution: Claims and processes next eligible notification atomically
-    const result = await runNextWorkerDelivery();
+    const mode = req.nextUrl.searchParams.get("mode");
+    if (mode === "single") {
+      const result = await runNextWorkerDelivery();
+
+      if (result.status === "ALREADY_RUNNING") {
+        return NextResponse.json(
+          { error: "ALREADY_RUNNING", message: result.error || "Delivery execution already in progress under active lease" },
+          { status: 409 }
+        );
+      }
+
+      if (result.status === "DAILY_LIMIT_REACHED") {
+        return NextResponse.json(
+          { error: "DAILY_LIMIT_REACHED", message: result.error || "Global daily delivery cap reached" },
+          { status: 503 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          eventId: result.eventId,
+          status: result.status,
+          attemptNumber: result.attemptNumber,
+          dispatchCount: result.dispatchCount,
+          providerMessageId: result.providerMessageId,
+          error: result.error,
+        },
+        { status: 200 }
+      );
+    }
+
+    // Default: Bounded Batch Execution
+    const batchResult = await runBatchWorkerDelivery();
+
+    if (batchResult.status === "ALREADY_RUNNING") {
+      return NextResponse.json(
+        { error: "ALREADY_RUNNING", message: batchResult.stopReason || "Delivery execution already in progress under active lease" },
+        { status: 409 }
+      );
+    }
+
+    if (batchResult.status === "DAILY_LIMIT_REACHED") {
+      return NextResponse.json(
+        { error: "DAILY_LIMIT_REACHED", message: batchResult.stopReason || "Global daily delivery cap reached" },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json(
       {
-        success: true,
-        eventId: result.eventId,
-        status: result.status,
-        attemptNumber: result.attemptNumber,
-        dispatchCount: result.dispatchCount,
-        providerMessageId: result.providerMessageId,
-        error: result.error,
+        success: batchResult.success,
+        runId: batchResult.runId,
+        status: batchResult.status,
+        claimedCount: batchResult.claimedCount,
+        sentCount: batchResult.sentCount,
+        suppressedCount: batchResult.suppressedCount,
+        transientFailureCount: batchResult.transientFailureCount,
+        permanentFailureCount: batchResult.permanentFailureCount,
+        unknownCount: batchResult.unknownCount,
+        technicalFailureCount: batchResult.technicalFailureCount,
+        stopReason: batchResult.stopReason,
+        noWork: batchResult.noWork,
       },
       { status: 200 }
     );
