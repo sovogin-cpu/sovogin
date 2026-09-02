@@ -29,11 +29,11 @@ export default function PortalNoAutorizadoPage() {
 
         <div className="pt-2 space-y-3">
           <a
-            href="mailto:info@sovogin.org"
+            href="mailto:info@sovogin.com"
             className="w-full h-12 rounded-2xl bg-[#006666] hover:bg-[#005555] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg"
           >
             <Mail className="w-4 h-4" />
-            Contactar a SOVOGIN (info@sovogin.org)
+            Contactar a SOVOGIN (info@sovogin.com)
           </a>
 
           <Link href="/">
