@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
 import { MemberVerificationModal } from "@/components/MemberVerificationModal";
 import { EventHeaderCarousel } from "@/components/EventHeaderCarousel";
+import { getEventMinimumPositivePrice, formatCOP } from "@/lib/payments/event-pricing";
 
 interface SimposioEvent {
   id: string;
@@ -57,7 +58,7 @@ export default function SimposiosPage() {
     e.preventDefault();
     // Check if already verified in this session
     const isVerified = sessionStorage.getItem("member_access") === "granted";
-    
+
     if (isVerified) {
       window.open(url, "_blank");
     } else {
@@ -73,7 +74,7 @@ export default function SimposiosPage() {
 
   return (
     <div className="bg-slate-50 min-h-screen pb-24">
-      <MemberVerificationModal 
+      <MemberVerificationModal
         isOpen={isVerifying}
         onClose={() => setIsVerifying(false)}
         onVerified={onVerified}
@@ -118,10 +119,10 @@ export default function SimposiosPage() {
             events.map((event) => (
               <div key={event.id} className="group bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-slate-100 flex flex-col lg:flex-row">
                 <div className="lg:w-1/3 aspect-video lg:aspect-auto bg-slate-200 relative">
-                  <img 
-                    src={event.image_url || "/img/banner.png"} 
-                    alt={event.title} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                  <img
+                    src={event.image_url || "/img/banner.png"}
+                    alt={event.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute top-4 left-4 z-20">
                     <span className="px-3 py-1 bg-white/90 backdrop-blur-sm text-primary text-xs font-bold rounded-full uppercase tracking-wider">
@@ -129,7 +130,7 @@ export default function SimposiosPage() {
                     </span>
                   </div>
                 </div>
-                
+
                 <div className="p-8 lg:p-12 flex-1 flex flex-col justify-between space-y-6">
                   <div className="space-y-4">
                     <div className="flex items-center gap-6 text-sm text-slate-500 font-medium">
@@ -142,11 +143,11 @@ export default function SimposiosPage() {
                         {event.location}
                       </div>
                     </div>
-                    
+
                     <h2 className="text-3xl font-bold text-slate-900 group-hover:text-primary transition-colors">
                       {event.title}
                     </h2>
-                    
+
                     <div className="flex flex-wrap gap-4 pt-2">
                       <div className="flex items-center gap-2 text-sm bg-slate-50 px-3 py-1 rounded-full text-slate-600">
                         <Users className="w-4 h-4" />
@@ -161,21 +162,25 @@ export default function SimposiosPage() {
 
                   <div className="pt-6 border-t border-slate-50 flex flex-col sm:flex-row items-center justify-between gap-6">
                     <div>
-                      <div className="text-sm text-slate-400">Inversión desde:</div>
+                      <div className="text-sm text-slate-400">
+                        {getEventMinimumPositivePrice(event) > 0 ? "Inversión desde:" : "Inversión:"}
+                      </div>
                       <div className="text-2xl font-bold text-slate-900">
-                        {event.price ? `$${new Intl.NumberFormat('es-CO').format(event.price)} COP` : "Gratis"}
+                        {getEventMinimumPositivePrice(event) > 0
+                          ? `${formatCOP(getEventMinimumPositivePrice(event))} COP`
+                          : "Gratis"}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
                       <Link href={`/simposios/${event.id}`} className="flex-1 sm:flex-none">
                         <Button variant="outline" size="lg" className="w-full px-8 rounded-xl">Más Información</Button>
                       </Link>
-                      
+
                       {event.live_url && (
-                        <Button 
+                        <Button
                           onClick={(e) => handleLiveAccess(e, event.id, event.live_url)}
-                          variant="secondary" 
-                          size="lg" 
+                          variant="secondary"
+                          size="lg"
                           className="flex-1 sm:flex-none px-8 rounded-xl bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 gap-2"
                         >
                           <ImageIcon className="w-4 h-4" /> Ingresar al Evento
