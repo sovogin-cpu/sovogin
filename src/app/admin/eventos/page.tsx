@@ -5,7 +5,7 @@ import { Plus, MapPin, Loader2, Edit2, Trash2, Image as ImageIcon } from "lucide
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/utils/supabase/client";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -15,12 +15,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-interface PricingTier {
-  name: string;
-  presencial: number;
-  virtual: number;
-}
+import {
+  normalizePricingTiersToV2,
+  inspectPricingTiersNormalization,
+  EventPricingTierV2
+} from "@/lib/payments/event-pricing";
 
 interface Speaker {
   name: string;
@@ -34,18 +33,6 @@ interface ProgramItem {
   speaker?: string;
 }
 
-interface TieredPricing {
-  tiers?: PricingTier[];
-  presencial?: {
-    general?: number;
-    [key: string]: number | undefined;
-  };
-  virtual?: {
-    general?: number;
-    [key: string]: number | undefined;
-  };
-}
-
 interface Event {
   id: string;
   title: string;
@@ -57,7 +44,10 @@ interface Event {
   moderators?: string | null;
   program_items?: ProgramItem[] | null;
   speakers_info?: string | null;
-  tiered_pricing?: TieredPricing | null;
+  tiered_pricing?: {
+    version?: number;
+    tiers?: any[];
+  } | null;
   created_at?: string;
 }
 
@@ -71,7 +61,7 @@ interface EventFormData {
   moderators: string;
   program_items: ProgramItem[];
   speakers_info: string;
-  pricing_tiers: PricingTier[];
+  pricing_tiers: EventPricingTierV2[];
 }
 
 export default function EventsAdmin() {
@@ -94,19 +84,19 @@ export default function EventsAdmin() {
     program_items: [],
     speakers_info: "",
     pricing_tiers: [
-      { name: "General", presencial: 0, virtual: 0 },
-      { name: "Residente", presencial: 0, virtual: 0 },
-      { name: "Estudiante", presencial: 0, virtual: 0 },
-      { name: "Asociado", presencial: 0, virtual: 0 }
-    ]
+      { name: "General", price: 0 },
+      { name: "Residente", price: 0 },
+      { name: "Estudiante", price: 0 },
+      { name: "Asociado", price: 0 },
+    ],
   });
 
   const fetchEvents = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from("events")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
       setEvents((data as Event[]) || []);
     } catch (error: unknown) {
@@ -145,11 +135,11 @@ export default function EventsAdmin() {
       program_items: [{ time: "", topic: "", speakers: [{ name: "", description: "" }] }],
       speakers_info: "",
       pricing_tiers: [
-        { name: "General", presencial: 0, virtual: 0 },
-        { name: "Residente", presencial: 0, virtual: 0 },
-        { name: "Estudiante", presencial: 0, virtual: 0 },
-        { name: "Asociado", presencial: 0, virtual: 0 }
-      ]
+        { name: "General", price: 0 },
+        { name: "Residente", price: 0 },
+        { name: "Estudiante", price: 0 },
+        { name: "Asociado", price: 0 },
+      ],
     });
     setIsModalOpen(true);
   }
@@ -157,6 +147,21 @@ export default function EventsAdmin() {
   function openEditModal(eventItem: Event) {
     setEditingId(eventItem.id);
     setSelectedFile(null);
+
+    const inspection = inspectPricingTiersNormalization(eventItem.tiered_pricing);
+    if (inspection.isAmbiguous) {
+      alert(`Este evento tiene precios históricos diferentes para Presencial y Virtual en los tipos: ${inspection.ambiguousTiers.join(", ")}. Revise y convierta manualmente los tipos de inscripción antes de guardar.`);
+    }
+
+    const tiersToUse = inspection.tiers.length > 0
+      ? inspection.tiers
+      : [
+          { name: "General", price: 0 },
+          { name: "Residente", price: 0 },
+          { name: "Estudiante", price: 0 },
+          { name: "Asociado", price: 0 },
+        ];
+
     setFormData({
       title: eventItem.title,
       description: eventItem.description || "",
@@ -167,33 +172,28 @@ export default function EventsAdmin() {
       moderators: eventItem.moderators || "",
       program_items: eventItem.program_items?.map((item) => ({
         ...item,
-        speakers: item.speakers?.map((s) => typeof s === 'string' ? { name: s, description: "" } : s) || [{ name: item.speaker || "", description: "" }]
+        speakers: item.speakers?.map((s) => typeof s === "string" ? { name: s, description: "" } : s) || [{ name: item.speaker || "", description: "" }],
       })) || [],
       speakers_info: eventItem.speakers_info || "",
-      pricing_tiers: eventItem.tiered_pricing?.tiers || [
-        { name: "General", presencial: 0, virtual: 0 },
-        { name: "Residente", presencial: 0, virtual: 0 },
-        { name: "Estudiante", presencial: 0, virtual: 0 },
-        { name: "Asociado", presencial: 0, virtual: 0 }
-      ]
+      pricing_tiers: tiersToUse,
     });
     setIsModalOpen(true);
   }
 
   async function uploadImage(file: File) {
-    const fileExt = file.name.split('.').pop();
+    const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `${fileName}`;
-    const { error: uploadError } = await supabase.storage.from('event-images').upload(filePath, file);
+    const { error: uploadError } = await supabase.storage.from("event-images").upload(filePath, file);
     if (uploadError) throw uploadError;
-    const { data } = supabase.storage.from('event-images').getPublicUrl(filePath);
+    const { data } = supabase.storage.from("event-images").getPublicUrl(filePath);
     return data.publicUrl;
   }
 
   const addProgramItem = () => {
     setFormData({
       ...formData,
-      program_items: [...formData.program_items, { time: "", topic: "", speakers: [{ name: "", description: "" }] }]
+      program_items: [...formData.program_items, { time: "", topic: "", speakers: [{ name: "", description: "" }] }],
     });
   };
 
@@ -223,15 +223,38 @@ export default function EventsAdmin() {
 
   const updateSpeakerInItem = (itemIndex: number, speakerIndex: number, field: keyof Speaker, value: string) => {
     const newItems = [...formData.program_items];
-    newItems[itemIndex].speakers[speakerIndex] = { 
-      ...newItems[itemIndex].speakers[speakerIndex], 
-      [field]: value 
+    newItems[itemIndex].speakers[speakerIndex] = {
+      ...newItems[itemIndex].speakers[speakerIndex],
+      [field]: value
     };
     setFormData({ ...formData, program_items: newItems });
   };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Validation for Pricing Tiers
+    const seenNames = new Set<string>();
+    for (let i = 0; i < formData.pricing_tiers.length; i++) {
+      const tier = formData.pricing_tiers[i];
+      const cleanName = tier.name.trim();
+      if (!cleanName) {
+        alert(`El tipo de inscripción #${i + 1} debe tener un nombre válido.`);
+        return;
+      }
+      const lower = cleanName.toLowerCase();
+      if (seenNames.has(lower)) {
+        alert(`Existe más de un tipo de inscripción con el nombre "${cleanName}". Los nombres deben ser únicos.`);
+        return;
+      }
+      seenNames.add(lower);
+
+      if (typeof tier.price !== "number" || !Number.isFinite(tier.price) || tier.price < 0) {
+        alert(`El tipo de inscripción "${cleanName}" tiene un valor inválido (${tier.price}). Debe ser un número mayor o igual a cero.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -250,14 +273,20 @@ export default function EventsAdmin() {
         moderators: formData.moderators,
         program_items: formData.program_items,
         speakers_info: formData.speakers_info,
-        tiered_pricing: { tiers: formData.pricing_tiers }
+        tiered_pricing: {
+          version: 2,
+          tiers: formData.pricing_tiers.map((t) => ({
+            name: t.name.trim(),
+            price: Number(t.price),
+          })),
+        },
       };
 
       if (editingId) {
-        const { error } = await supabase.from('events').update(payload).eq('id', editingId);
+        const { error } = await supabase.from("events").update(payload).eq("id", editingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('events').insert([payload]);
+        const { error } = await supabase.from("events").insert([payload]);
         if (error) throw error;
       }
 
@@ -274,7 +303,7 @@ export default function EventsAdmin() {
   const addTier = () => {
     setFormData({
       ...formData,
-      pricing_tiers: [...formData.pricing_tiers, { name: "Nuevo", presencial: 0, virtual: 0 }]
+      pricing_tiers: [...formData.pricing_tiers, { name: "Nuevo Tipo", price: 0 }],
     });
   };
 
@@ -284,7 +313,7 @@ export default function EventsAdmin() {
     setFormData({ ...formData, pricing_tiers: newTiers });
   };
 
-  const updateTier = (index: number, field: keyof PricingTier, value: string | number) => {
+  const updateTier = (index: number, field: keyof EventPricingTierV2, value: string | number) => {
     const newTiers = [...formData.pricing_tiers];
     newTiers[index] = { ...newTiers[index], [field]: value };
     setFormData({ ...formData, pricing_tiers: newTiers });
@@ -293,7 +322,7 @@ export default function EventsAdmin() {
   async function deleteEvent(id: string) {
     if (!confirm("¿Eliminar este evento?")) return;
     try {
-      const { error } = await supabase.from('events').delete().eq('id', id);
+      const { error } = await supabase.from("events").delete().eq("id", id);
       if (error) throw error;
       void fetchEvents();
     } catch (error: unknown) {
@@ -307,7 +336,7 @@ export default function EventsAdmin() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 font-heading">Gestión de Eventos</h1>
-          <p className="text-slate-500">Configura precios detallados para presencial y virtual.</p>
+          <p className="text-slate-500">Configura tipos de inscripción y valores por evento.</p>
         </div>
 
         <Button onClick={openCreateModal} className="bg-primary hover:bg-primary/90 h-12 px-6 rounded-xl shadow-lg shadow-primary/20 gap-2 font-bold">
@@ -353,50 +382,48 @@ export default function EventsAdmin() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Fecha</Label>
-                        <Input required type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="rounded-xl h-12" />
+                        <Input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="rounded-xl h-12" />
                       </div>
                       <div className="space-y-2">
                         <Label>Ubicación</Label>
-                        <Input required value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="rounded-xl h-12" />
+                        <Input required value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} placeholder="Ej: Hotel Intercontinental" className="rounded-xl h-12" />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-primary font-bold flex items-center gap-2">
-                        <ImageIcon className="w-4 h-4" /> Link del Evento en Vivo (Virtual)
-                      </Label>
-                      <Input value={formData.live_url} onChange={e => setFormData({...formData, live_url: e.target.value})} placeholder="https://zoom.us/j/..." className="rounded-xl h-12 border-primary/20" />
+                      <Label>Link del Evento en Vivo (Virtual)</Label>
+                      <Input value={formData.live_url} onChange={e => setFormData({...formData, live_url: e.target.value})} placeholder="Ej: https://www.youtube.com/watch?v=..." className="rounded-xl h-12" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Moderadores</Label>
+                      <Input value={formData.moderators} onChange={e => setFormData({...formData, moderators: e.target.value})} placeholder="Ej: Dra. María Pérez" className="rounded-xl h-12" />
                     </div>
                   </div>
 
                   <div className="space-y-6">
-                    <div className="space-y-2">
-                      <Label>Moderadores</Label>
-                      <Input value={formData.moderators} onChange={e => setFormData({...formData, moderators: e.target.value})} placeholder="Lista de moderadores..." className="rounded-xl h-12" />
-                    </div>
-
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <Label className="text-primary font-bold">Programa del Evento</Label>
+                        <Label className="text-sm font-bold text-slate-700">Programa Académico</Label>
                         <Button type="button" variant="outline" size="sm" onClick={addProgramItem} className="h-8 rounded-lg gap-1 border-primary text-primary">
-                          <Plus className="w-4 h-4" /> Tema
+                          <Plus className="w-4 h-4" /> Bloque
                         </Button>
                       </div>
-                      
-                      <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+
+                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
                         {formData.program_items.map((item, index: number) => (
-                          <div key={index} className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3 relative group">
-                            <Button 
-                              type="button" 
-                              variant="ghost" 
-                              size="icon" 
+                          <div key={index} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3 relative">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => removeProgramItem(index)}
-                              className="absolute top-2 right-2 h-6 w-6 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute top-2 right-2 h-8 w-8 text-slate-300 hover:text-red-500"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
 
-                            <div className="grid grid-cols-12 gap-3">
+                            <div className="grid grid-cols-12 gap-3 pr-8">
                                <div className="col-span-3">
                                   <Label className="text-[10px] uppercase font-bold text-slate-400">Hora</Label>
                                   <Input value={item.time} onChange={(e) => updateProgramItem(index, 'time', e.target.value)} placeholder="8:00 AM" className="h-9 text-xs rounded-lg" />
@@ -406,7 +433,7 @@ export default function EventsAdmin() {
                                   <Input value={item.topic} onChange={(e) => updateProgramItem(index, 'topic', e.target.value)} placeholder="Título de la charla" className="h-9 text-xs rounded-lg font-bold" />
                                </div>
                             </div>
-                            
+
                             <div className="space-y-2 pt-2 border-t border-slate-200/50">
                                <div className="flex items-center justify-between">
                                   <Label className="text-[10px] uppercase font-bold text-primary">Ponentes / Panelistas</Label>
@@ -414,22 +441,22 @@ export default function EventsAdmin() {
                                      <Plus className="w-3 h-3" /> Añadir Panelista
                                   </Button>
                                </div>
-                               
+
                                <div className="space-y-3">
                                   {item.speakers?.map((speaker, sIdx: number) => (
                                      <div key={sIdx} className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm space-y-2 relative">
                                         <div className="flex gap-2">
-                                           <Input 
-                                             value={speaker.name} 
-                                             onChange={(e) => updateSpeakerInItem(index, sIdx, 'name', e.target.value)} 
-                                             placeholder="Nombre del Panelista" 
-                                             className="h-9 text-xs rounded-lg flex-1 font-bold" 
+                                           <Input
+                                             value={speaker.name}
+                                             onChange={(e) => updateSpeakerInItem(index, sIdx, 'name', e.target.value)}
+                                             placeholder="Nombre del Panelista"
+                                             className="h-9 text-xs rounded-lg flex-1 font-bold"
                                            />
                                            {item.speakers.length > 1 && (
-                                              <Button 
-                                                type="button" 
-                                                variant="ghost" 
-                                                size="icon" 
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
                                                 onClick={() => removeSpeakerFromItem(index, sIdx)}
                                                 className="h-9 w-9 text-slate-300 hover:text-red-400"
                                               >
@@ -437,11 +464,11 @@ export default function EventsAdmin() {
                                               </Button>
                                            )}
                                         </div>
-                                        <Input 
-                                          value={speaker.description} 
-                                          onChange={(e) => updateSpeakerInItem(index, sIdx, 'description', e.target.value)} 
-                                          placeholder="Cargo o descripción corta (ej: Ginecobstetra, Cali)" 
-                                          className="h-8 text-[10px] rounded-lg w-full bg-slate-50/50" 
+                                        <Input
+                                          value={speaker.description}
+                                          onChange={(e) => updateSpeakerInItem(index, sIdx, 'description', e.target.value)}
+                                          placeholder="Cargo o descripción corta (ej: Ginecobstetra, Cali)"
+                                          className="h-8 text-[10px] rounded-lg w-full bg-slate-50/50"
                                         />
                                      </div>
                                   ))}
@@ -461,113 +488,107 @@ export default function EventsAdmin() {
               </TabsContent>
 
               <TabsContent value="precios">
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-lg font-bold text-primary">Precios por Categoría</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addTier} className="h-8 rounded-lg gap-1 border-primary text-primary">
-                    <Plus className="w-4 h-4" /> Tipo
-                  </Button>
-                </div>
-                
-                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                  {formData.pricing_tiers.map((tier, index: number) => (
-                    <div key={index} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3 relative">
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => removeTier(index)}
-                        className="absolute top-2 right-2 h-8 w-8 text-slate-300 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-
-                      <div className="space-y-2">
-                        <Label className="text-[10px] uppercase font-bold text-slate-400">Nombre del Tipo</Label>
-                        <Input 
-                          value={tier.name} 
-                          onChange={(e) => updateTier(index, 'name', e.target.value)}
-                          placeholder="Ej: General"
-                          className="h-10 rounded-lg"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-[10px] uppercase font-bold text-slate-400">Presencial</Label>
-                          <Input 
-                            type="number"
-                            value={tier.presencial} 
-                            onChange={(e) => updateTier(index, 'presencial', parseFloat(e.target.value) || 0)}
-                            className="h-10 rounded-lg text-right"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-[10px] uppercase font-bold text-slate-400">Virtual</Label>
-                          <Input 
-                            type="number"
-                            value={tier.virtual} 
-                            onChange={(e) => updateTier(index, 'virtual', parseFloat(e.target.value) || 0)}
-                            className="h-10 rounded-lg text-right"
-                          />
-                        </div>
-                      </div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-lg font-bold text-primary">Precios por Categoría</Label>
+                      <p className="text-xs text-slate-500 mt-0.5">Cada entrada representa un tipo de inscripción independiente (Presencial, Virtual, Asociado, etc.).</p>
                     </div>
-                  ))}
-                </div>
+                    <Button type="button" variant="outline" size="sm" onClick={addTier} className="h-8 rounded-lg gap-1 border-primary text-primary">
+                      <Plus className="w-4 h-4" /> Tipo
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                    {formData.pricing_tiers.map((tier, index: number) => (
+                      <div key={index} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3 relative">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeTier(index)}
+                          className="absolute top-2 right-2 h-8 w-8 text-slate-300 hover:text-red-500"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="text-[10px] uppercase font-bold text-slate-400">Nombre del Tipo</Label>
+                            <Input
+                              value={tier.name}
+                              onChange={(e) => updateTier(index, 'name', e.target.value)}
+                              placeholder="Ej: Ginecólogos no Asociados"
+                              className="h-10 rounded-lg font-bold text-xs"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-[10px] uppercase font-bold text-slate-400">Valor (COP)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={tier.price}
+                              onChange={(e) => updateTier(index, 'price', parseFloat(e.target.value) || 0)}
+                              className="h-10 rounded-lg text-right font-bold text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </TabsContent>
             </Tabs>
 
             <div className="space-y-2">
               <Label>Resumen / Descripción Corta</Label>
-              <Textarea 
+              <Textarea
                 required
                 value={formData.description}
                 onChange={e => setFormData({...formData, description: e.target.value})}
                 className="w-full min-h-[80px] rounded-xl"
               />
             </div>
-            
-            <Button type="submit" disabled={isSubmitting} className="w-full h-14 rounded-2xl font-bold bg-primary text-white text-lg shadow-xl shadow-primary/20">
-              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Guardar Evento"}
-            </Button>
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl h-12">
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90 rounded-xl h-12 px-8 font-bold">
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : editingId ? "Guardar Cambios" : "Crear Evento"}
+              </Button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      {loading ? (
-        <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-primary" /></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {events.map((eventItem) => (
-            <Card key={eventItem.id} className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white border border-slate-50">
-              <div className="aspect-video relative overflow-hidden">
-                <img src={eventItem.image_url || "/img/1.jpeg"} alt={`Imagen promocional de ${eventItem.title}`} className="w-full h-full object-cover" />
-                <div className="absolute top-4 right-4 flex gap-2">
-                  <button onClick={() => openEditModal(eventItem)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-primary"><Edit2 className="w-4 h-4" /></button>
-                  <button onClick={() => deleteEvent(eventItem.id)} className="p-2 bg-white/90 backdrop-blur-md rounded-xl text-slate-600 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+      {/* List / Cards for existing events */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {events.map((eventItem) => (
+          <Card key={eventItem.id} className="rounded-3xl border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+            <div className="relative h-48 bg-slate-100 overflow-hidden">
+              <img src={eventItem.image_url || "/img/1.jpeg"} alt={eventItem.title} className="w-full h-full object-cover" />
+              <div className="absolute top-3 right-3 flex gap-2">
+                <Button size="icon" variant="secondary" onClick={() => openEditModal(eventItem)} className="h-9 w-9 rounded-xl bg-white/80 backdrop-blur-md hover:bg-white text-slate-700">
+                  <Edit2 className="w-4 h-4" />
+                </Button>
+                <Button size="icon" variant="destructive" onClick={() => deleteEvent(eventItem.id)} className="h-9 w-9 rounded-xl">
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            <CardContent className="p-6 space-y-4">
+              <h3 className="font-bold text-lg text-slate-900 leading-snug">{eventItem.title}</h3>
+              <div className="flex flex-col gap-2 text-xs text-slate-500 font-bold">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  <span>{eventItem.location || "Sin ubicación"}</span>
                 </div>
               </div>
-              <CardContent className="p-8">
-                <h3 className="text-2xl font-bold text-slate-900 mb-4">{eventItem.title}</h3>
-                <div className="space-y-2 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">General (Presencial):</span>
-                    <span className="font-bold text-primary">${new Intl.NumberFormat('es-CO').format(eventItem.tiered_pricing?.presencial?.general || 0)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Asociados:</span>
-                    <span className="font-bold text-emerald-500">Gratis</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-slate-400 text-sm"><MapPin className="w-4 h-4" />{eventItem.location}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

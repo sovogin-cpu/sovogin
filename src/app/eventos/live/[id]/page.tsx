@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { 
-  Lock, 
-  Play, 
-  MessageSquare, 
-  AlertCircle, 
-  Loader2, 
-  User, 
+import {
+  Lock,
+  Play,
+  MessageSquare,
+  AlertCircle,
+  Loader2,
+  User,
   Key,
   ChevronRight
 } from "lucide-react";
@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OpenpayRegistrationForm } from "@/components/payments/OpenpayRegistrationForm";
 import { cn } from "@/lib/utils";
+import { buildYouTubeEmbedUrl } from "@/lib/video/youtube-helper";
+import { isUserAuthorizedForLiveStream } from "@/lib/video/live-authorization";
 
 interface EventLive {
   id: string;
@@ -55,13 +57,13 @@ export default function LiveEventPage() {
   const { id } = useParams();
   const eventIdStr = Array.isArray(id) ? id[0] : id;
   const supabase = useMemo(() => createClient(), []);
-  
+
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState<CombinedEvent | null>(null);
   const [accessGranted, setAccessGranted] = useState(false);
   const [accessResolved, setAccessResolved] = useState(false);
   const [error, setError] = useState("");
-  
+
   // Login Form
   const [credentials, setCredentials] = useState<LoginCredentials>({
     email: "",
@@ -108,7 +110,7 @@ export default function LiveEventPage() {
           .select('*')
           .eq('id', eventIdStr)
           .single();
-        
+
         if (eventData) {
           combinedEvent = eventData as CombinedEvent;
         }
@@ -160,29 +162,40 @@ export default function LiveEventPage() {
     setError("");
 
     try {
-      // 1. Check in event_attendees (Guests)
-      const { data: guest } = await supabase
+      let guest = null;
+      let registration = null;
+
+      // 1. Check in event_attendees (Guests specific to this event)
+      const { data: guestData } = await supabase
         .from('event_attendees')
         .select('*')
         .eq('event_live_id', eventIdStr)
         .eq('email', credentials.email.toLowerCase())
-        .eq('document_number', credentials.document)
+        .eq('document_number', credentials.document.trim())
         .single();
+      guest = guestData;
 
-      if (guest) {
-        grantAccess();
-        return;
+      // 2. Check in registrations for THIS event
+      if (eventIdStr) {
+        const { data: regData } = await supabase
+          .from('registrations')
+          .select('*')
+          .eq('event_id', eventIdStr)
+          .eq('email', credentials.email.toLowerCase())
+          .eq('document_number', credentials.document.trim())
+          .single();
+        registration = regData;
       }
 
-      // 2. Check in associates
-      const { data: associate } = await supabase
-        .from('associates')
-        .select('*')
-        .eq('email', credentials.email.toLowerCase())
-        .eq('status', 'Activo')
-        .single();
+      const isAuthorized = isUserAuthorizedForLiveStream({
+        targetEventId: eventIdStr || "",
+        userEmail: credentials.email,
+        userDocumentNumber: credentials.document,
+        registration,
+        guestAttendee: guest,
+      });
 
-      if (associate) {
+      if (isAuthorized) {
         grantAccess();
         return;
       }
@@ -248,7 +261,7 @@ export default function LiveEventPage() {
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Registrado</label>
                   <div className="relative">
                     <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                    <Input 
+                    <Input
                       required
                       type="email"
                       value={credentials.email}
@@ -263,7 +276,7 @@ export default function LiveEventPage() {
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Número de Documento</label>
                   <div className="relative">
                     <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                    <Input 
+                    <Input
                       required
                       type="password"
                       value={credentials.document}
@@ -281,8 +294,8 @@ export default function LiveEventPage() {
                   </div>
                 )}
 
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={isVerifying}
                   className="w-full h-16 rounded-2xl bg-primary hover:bg-primary/90 text-white font-bold text-lg shadow-xl shadow-primary/20 gap-2 mt-4 transition-all active:scale-[0.98]"
                 >
@@ -337,14 +350,14 @@ export default function LiveEventPage() {
               </span>
             </div>
           </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => { 
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
               if (typeof window !== "undefined" && eventIdStr) {
                 sessionStorage.removeItem(`live_access_${eventIdStr}`);
               }
-              setAccessGranted(false); 
+              setAccessGranted(false);
             }}
             className="text-slate-400 hover:text-white"
           >
@@ -356,16 +369,22 @@ export default function LiveEventPage() {
       {/* Main Content Area */}
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-180px)]">
-          
+
           {/* Video Player (Main) */}
           <div className="lg:col-span-3 flex flex-col gap-4">
             <div className="flex-1 bg-black rounded-3xl overflow-hidden shadow-2xl relative border border-white/5 group">
-              <iframe 
-                src={`https://www.youtube.com/embed/${event.youtube_video_id}?autoplay=1&rel=0`}
-                className="absolute inset-0 w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              {buildYouTubeEmbedUrl(event.youtube_video_id) ? (
+                <iframe
+                  src={buildYouTubeEmbedUrl(event.youtube_video_id)!}
+                  className="absolute inset-0 w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-slate-400 font-bold text-sm">
+                  Enlace de transmisión no disponible o no válido.
+                </div>
+              )}
             </div>
           </div>
 
@@ -378,7 +397,7 @@ export default function LiveEventPage() {
                   <MessageSquare className="w-5 h-5 text-primary" />
                   <span className="font-bold text-slate-900">Chat del Evento</span>
                 </div>
-                <iframe 
+                <iframe
                   src={`https://www.youtube.com/live_chat?v=${event.youtube_chat_id}&embed_domain=${typeof window !== 'undefined' ? window.location.hostname : ''}`}
                   className="w-full h-[calc(100%-56px)]"
                 />

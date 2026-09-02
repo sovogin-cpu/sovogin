@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { 
-  Calendar, 
-  MapPin, 
-  Users, 
-  Clock, 
-  FileText, 
-  UserCircle2, 
-  Video, 
+import {
+  Calendar,
+  MapPin,
+  Users,
+  Clock,
+  FileText,
+  UserCircle2,
+  Video,
   ChevronLeft,
   Share2,
   Building2,
@@ -21,6 +21,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { MemberVerificationModal } from "@/components/MemberVerificationModal";
+import {
+  normalizePricingTiersToV2,
+  formatCOP,
+  getEventMinimumPositivePrice,
+  isAllFreeEvent,
+  hasFreeTier
+} from "@/lib/payments/event-pricing";
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -46,7 +53,7 @@ export default function EventDetailPage() {
   const handleLiveAccess = (e: React.MouseEvent) => {
     e.preventDefault();
     const isVerified = sessionStorage.getItem("member_access") === "granted";
-    
+
     if (isVerified) {
       window.open(event.live_url, "_blank");
     } else {
@@ -64,7 +71,7 @@ export default function EventDetailPage() {
 
   return (
     <main className="pt-24 min-h-screen bg-white pb-20">
-      <MemberVerificationModal 
+      <MemberVerificationModal
         isOpen={isVerifying}
         onClose={() => setIsVerifying(false)}
         onVerified={onVerified}
@@ -75,7 +82,7 @@ export default function EventDetailPage() {
       <div className="relative h-[400px] md:h-[500px] w-full overflow-hidden bg-slate-900">
         <img src={event.image_url || "/img/banner.png"} alt={event.title} className="w-full h-full object-cover opacity-60" />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
-        
+
         <div className="container mx-auto px-4 relative h-full flex flex-col justify-end pb-12">
            <button onClick={() => router.back()} className="absolute top-8 left-4 flex items-center gap-2 text-white/80 hover:text-white transition-colors font-bold">
               <ChevronLeft className="w-5 h-5" /> Volver a Simposios
@@ -86,7 +93,7 @@ export default function EventDetailPage() {
                 {event.category || "Simposio Científico"}
               </span>
               <h1 className="text-4xl md:text-6xl font-bold text-white font-heading leading-tight">{event.title}</h1>
-              
+
               <div className="flex flex-wrap items-center gap-6 text-white/90">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center backdrop-blur-md">
@@ -136,12 +143,26 @@ export default function EventDetailPage() {
                     <h3 className="text-2xl font-bold text-slate-900 mb-4">Sobre el Evento</h3>
                     <p className="text-slate-600 leading-relaxed text-lg whitespace-pre-wrap">{event.description || "No hay una descripción detallada disponible."}</p>
                  </div>
-                 
+
                  {event.moderators && (
                     <div className="pt-8 border-t">
                        <h4 className="text-lg font-bold text-slate-900 mb-4">Moderadores</h4>
                        <p className="text-slate-600">{event.moderators}</p>
                     </div>
+                 )}
+                 {/* Precios de Inscripción */}
+                 {normalizePricingTiersToV2(event.tiered_pricing).length > 0 && (
+                   <div className="pt-8 border-t border-slate-100 space-y-4">
+                     <h4 className="text-xl font-bold text-slate-900 font-heading">Precios de Inscripción</h4>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                       {normalizePricingTiersToV2(event.tiered_pricing).map((tier: any, idx: number) => (
+                         <div key={idx} className="flex justify-between items-center p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                           <span className="font-bold text-slate-800 text-sm">{tier.name}</span>
+                           <span className="font-extrabold text-primary text-base">{formatCOP(tier.price)}</span>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
                  )}
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
@@ -167,7 +188,7 @@ export default function EventDetailPage() {
                     <h3 className="text-2xl font-bold text-slate-900 mb-8 flex items-center gap-3">
                        <Clock className="w-6 h-6 text-primary" /> Programa Académico
                     </h3>
-                    
+
                     {event.program_items && event.program_items.length > 0 ? (
                       <div className="space-y-6 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-primary/10">
                         {event.program_items.map((item: any, idx: number) => (
@@ -225,11 +246,24 @@ export default function EventDetailPage() {
              <div className="sticky top-28 space-y-6">
                 <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-2xl shadow-slate-200/50 space-y-8">
                    <div className="space-y-2">
-                      <div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Inscripción desde</div>
-                      <div className="text-4xl font-bold text-slate-900">
-                        {event.price ? `$${new Intl.NumberFormat('es-CO').format(event.price)}` : "Gratis"}
-                        <span className="text-sm font-normal text-slate-400 ml-2">COP</span>
+                      <div className="text-slate-400 text-xs font-bold uppercase tracking-widest">
+                        {getEventMinimumPositivePrice(event) > 0 ? "Inscripción desde" : "Inscripción"}
                       </div>
+                      <div className="text-4xl font-bold text-slate-900">
+                        {getEventMinimumPositivePrice(event) > 0 ? (
+                          <>
+                            {formatCOP(getEventMinimumPositivePrice(event))}
+                            <span className="text-sm font-normal text-slate-400 ml-2">COP</span>
+                          </>
+                        ) : (
+                          "Gratis"
+                        )}
+                      </div>
+                      {hasFreeTier(event) && getEventMinimumPositivePrice(event) > 0 && (
+                        <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full mt-1">
+                          Asociados / Tarifas especiales: Gratis
+                        </span>
+                      )}
                    </div>
 
                    <div className="space-y-4">
@@ -240,9 +274,9 @@ export default function EventDetailPage() {
                       </Link>
 
                       {event.live_url && (
-                        <Button 
+                        <Button
                           onClick={handleLiveAccess}
-                          variant="outline" 
+                          variant="outline"
                           className="w-full h-16 rounded-2xl border-primary text-primary hover:bg-primary/5 font-bold text-lg gap-2"
                         >
                           <Video className="w-5 h-5" /> Ingresar al Vivo

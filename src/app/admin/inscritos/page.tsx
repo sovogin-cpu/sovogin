@@ -310,9 +310,11 @@ export default function RegistrationsAdmin() {
                         <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                           {r.category || "—"}
                         </span>
-                        <span className="text-[10px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md capitalize font-medium">
-                          {r.modality || "presencial"}
-                        </span>
+                        {r.modality && r.modality !== "registration_type" && (
+                          <span className="text-[10px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md capitalize font-medium">
+                            {r.modality}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
 

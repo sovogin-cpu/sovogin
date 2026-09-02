@@ -220,9 +220,9 @@ export const BrebPaymentDetailDialog: React.FC<
               </div>
 
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">Modalidad:</span>
+                <span className="text-slate-500 font-medium">Modalidad / Origen:</span>
                 <span className="font-bold text-slate-800 uppercase text-[11px] px-2 py-0.5 bg-slate-200/60 rounded-md">
-                  {order.modality || "presencial"}
+                  {order.modality === "registration_type" ? "Tipo de Inscripción" : (order.modality || "presencial")}
                 </span>
               </div>
 

@@ -73,7 +73,7 @@ export const CheckInResult: React.FC<CheckInResultProps> = ({ data, onReset }) =
               <Tag className="w-4 h-4" /> Categoría / Modalidad
             </span>
             <span className="font-semibold text-white capitalize">
-              {data.category} ({data.modality})
+              {data.category} {data.modality && data.modality !== "registration_type" ? `(${data.modality})` : ""}
             </span>
           </div>
 
