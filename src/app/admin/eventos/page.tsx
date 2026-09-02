@@ -20,6 +20,12 @@ import {
   inspectPricingTiersNormalization,
   EventPricingTierV2
 } from "@/lib/payments/event-pricing";
+import {
+  parseTransmissionConfig,
+  serializeTransmissionConfig,
+  TransmissionConfig,
+  TransmissionProvider,
+} from "@/lib/video/youtube-helper";
 
 interface Speaker {
   name: string;
@@ -390,9 +396,86 @@ export default function EventsAdmin() {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label>Link del Evento en Vivo (Virtual)</Label>
-                      <Input value={formData.live_url} onChange={e => setFormData({...formData, live_url: e.target.value})} placeholder="Ej: https://www.youtube.com/watch?v=..." className="rounded-xl h-12" />
+                    <div className="space-y-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                      <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Plataforma de Transmisión
+                      </Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium text-slate-600">Proveedor</Label>
+                          <select
+                            value={parseTransmissionConfig(formData.live_url).provider}
+                            onChange={(e) => {
+                              const current = parseTransmissionConfig(formData.live_url);
+                              const updated = serializeTransmissionConfig({
+                                ...current,
+                                provider: e.target.value as TransmissionProvider,
+                              });
+                              setFormData({ ...formData, live_url: updated });
+                            }}
+                            className="w-full h-12 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          >
+                            <option value="youtube">YouTube</option>
+                            <option value="zoom">Zoom</option>
+                            <option value="google_meet">Google Meet</option>
+                            <option value="microsoft_teams">Microsoft Teams</option>
+                            <option value="external">Otro enlace</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium text-slate-600">
+                            {parseTransmissionConfig(formData.live_url).provider === "youtube"
+                              ? "Enlace o ID de YouTube"
+                              : "Enlace de Transmisión"}
+                          </Label>
+                          <Input
+                            value={parseTransmissionConfig(formData.live_url).url}
+                            onChange={(e) => {
+                              const current = parseTransmissionConfig(formData.live_url);
+                              const updated = serializeTransmissionConfig({
+                                ...current,
+                                url: e.target.value,
+                              });
+                              setFormData({ ...formData, live_url: updated });
+                            }}
+                            placeholder={
+                              parseTransmissionConfig(formData.live_url).provider === "youtube"
+                                ? "Ej: https://www.youtube.com/watch?v=..."
+                                : "Ej: https://..."
+                            }
+                            className="rounded-xl h-12 bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {parseTransmissionConfig(formData.live_url).provider === "youtube" && (
+                        <div className="flex items-center gap-3 pt-1">
+                          <input
+                            type="checkbox"
+                            id="showLiveChatCheckbox"
+                            checked={Boolean(parseTransmissionConfig(formData.live_url).showLiveChat)}
+                            onChange={(e) => {
+                              const current = parseTransmissionConfig(formData.live_url);
+                              const updated = serializeTransmissionConfig({
+                                ...current,
+                                showLiveChat: e.target.checked,
+                              });
+                              setFormData({ ...formData, live_url: updated });
+                            }}
+                            className="w-4 h-4 rounded text-primary focus:ring-primary border-slate-300 cursor-pointer"
+                          />
+                          <Label htmlFor="showLiveChatCheckbox" className="text-sm font-medium text-slate-700 cursor-pointer">
+                            Mostrar chat en vivo
+                          </Label>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-500 italic">
+                        {parseTransmissionConfig(formData.live_url).provider === "youtube"
+                          ? "El video se reproducirá dentro de SOVOGIN para usuarios autorizados."
+                          : "Los usuarios autorizados verán un botón de acceso directo a la plataforma seleccionada."}
+                      </p>
                     </div>
 
                     <div className="space-y-2">

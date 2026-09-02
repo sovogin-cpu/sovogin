@@ -16,7 +16,7 @@ export interface FooterProps {
 
 export function Footer({ settings }: FooterProps) {
   const brandName = settings?.name || "SOVOGIN";
-  const email = settings?.email || "info@sovogin.org";
+  const email = settings?.email || "info@sovogin.com";
   const phone = settings?.phone || "+57 (601) 123 4567";
   const address = settings?.address || "Calle 100 #15-32, Bogotá";
   const description = settings?.description || "Sociedad de Ginecología y Obstetricia. Dedicados a la excelencia académica y el bienestar de la mujer en Colombia.";

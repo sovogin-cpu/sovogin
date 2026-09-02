@@ -41,7 +41,7 @@ export async function sendPaymentConfirmationEmail(
   }
 
   const resend = new Resend(apiKey);
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://sovogin.org";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://sovogin.com";
   const resultLink = `${siteUrl}/pago/resultado/${encodeURIComponent(data.reference)}`;
 
   const formattedAmount = new Intl.NumberFormat("es-CO").format(data.amount);

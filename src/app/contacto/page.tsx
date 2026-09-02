@@ -9,7 +9,7 @@ export default async function ContactoPage() {
   const supabase = await createClient();
   const { data } = await supabase.from('site_settings').select('data').eq('id', 'general').single();
   const settings = data?.data || {
-    email: "info@sovogin.org",
+    email: "info@sovogin.com",
     phone: "+57 (601) 123 4567",
     whatsapp: "+57 300 123 4567",
     address: "Calle 100 #15-32, Bogotá"
